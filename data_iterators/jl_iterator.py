@@ -1,4 +1,4 @@
-from iterator import DataIterator
+from data_iterators.iterator import DataIterator
 import jsonlines
 from typing import Optional
 
