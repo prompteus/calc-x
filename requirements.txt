@@ -9,3 +9,4 @@ inflect
 evaluate
 names_dataset
 inflect
+sklearn

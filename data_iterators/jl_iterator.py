@@ -59,7 +59,7 @@ class JLIterator(DataIterator):
         chain = []
         for link in obj["chain"]:
             chain.append(self.add_tags(link))
-        chain = "\n".join(chain)
+        chain = "\n".join(chain) + "Final answer is " + obj["answer"]
 
         return obj["prompt"], chain, obj["answer"]
 
@@ -70,7 +70,7 @@ class JLIterator(DataIterator):
             tag = self.tags[link["type"]]
         link_in = link['in']
         link_out = link['out']
-        return f"<{tag}>\n{link_in}\n</{tag}>\n<out>\n{link_out}\n</out>"
+        return f"<gadget id='{tag}'>\n{link_in}\n</gadget>\n<output>\n{link_out}\n</output>"
 
 
 if __name__ == "__main__":
