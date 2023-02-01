@@ -55,7 +55,7 @@ class InfiniteIterator(DataIterator):
                 temp_math_part = 'Then ' + temp_math_part
             call = Template(scenario['operation']).substitute({'x': x, 'y': y})
             x = int(self.calculator(call))
-            temp_chain = f"<python>\n{call}\n</python>\n<out>\n{x}\n</out>\n"
+            temp_chain = f"{self.calculator.get_gadget_request_bos()}\n{call}\n{self.calculator.get_gadget_request_eos()}\n{self.calculator.response_template % x}\n"
             math_parts.append(temp_math_part)
             chains.append(temp_chain)
 

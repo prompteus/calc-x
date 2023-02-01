@@ -1,6 +1,6 @@
 from data_iterators.iterator import DataIterator
 import jsonlines
-from typing import Optional
+from typing import Optional, Dict
 
 
 class JLIterator(DataIterator):
@@ -19,7 +19,8 @@ class JLIterator(DataIterator):
         "answer": str,
     }
     """
-    def __init__(self, path: str, tags: Optional[dict[str, str]]=None):
+
+    def __init__(self, path: str, tags: Optional[Dict[str, str]] = None):
         """
         path: str              - Path to the jsonlines file.
         tags: dict[str, str]   - definition of tags for different gadget types used
@@ -35,6 +36,7 @@ class JLIterator(DataIterator):
         self.reader = None
         self.iter_called = False
 
+
     def __enter__(self):
         self.reader = jsonlines.open(self.path)
         self.iterator = iter(self.reader)
@@ -49,7 +51,6 @@ class JLIterator(DataIterator):
         self.iter_called = True
         return self
 
-
     def __next__(self):
         if self.reader is None:
             raise Exception("File not open. Use the `with:` bolock.")
@@ -59,7 +60,8 @@ class JLIterator(DataIterator):
         chain = []
         for link in obj["chain"]:
             chain.append(self.add_tags(link))
-        chain = "\n".join(chain) + "Final answer is " + obj["answer"]
+        # chain = "\n".join(chain) + "Final answer is " + obj["answer"]
+        chain = "\n".join(chain)
 
         return obj["prompt"], chain, obj["answer"]
 

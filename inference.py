@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 import transformers
 from bs4 import BeautifulSoup
