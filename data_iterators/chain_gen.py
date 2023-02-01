@@ -1,8 +1,8 @@
-from typing import Tuple, List
+from typing import Tuple
 import random
 from string import Template
 from gadget import Calculator
-from iterator import DataIterator
+from data_iterators.iterator import DataIterator
 
 class InfiniteIterator(DataIterator):
     def __init__(self):

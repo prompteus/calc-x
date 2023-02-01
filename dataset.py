@@ -14,12 +14,10 @@ class DataSampler(IterableDataset):
 
     def __init__(self,
                  generator: Iterable[Tuple[str, List[str], str]],
-                 gadget: Gadget,
                  tokenizer: Callable[[str], BatchEncoding],
                  model: PreTrainedModel,
                  batch_size: int = 8):
         self.generator = generator
-        self.gadget = gadget
         self.tokenizer = tokenizer
         self.batch_size = batch_size
 
