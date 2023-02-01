@@ -7,6 +7,10 @@ class Gadget(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def gadget_id(self) -> str:
+        ...
+
+    @abc.abstractmethod
     def setup(self):
         ...
 
@@ -18,7 +22,10 @@ class Gadget(abc.ABC):
 class Calculator(Gadget):
 
     def setup(self):
-        ...
+        pass
+
+    def gadget_id(self) -> str:
+        return "calculator"
 
     def __call__(self, input_str: str) -> str:
         return subprocess.run(["python3", "-c", f"print(eval('{input_str}'))"], capture_output=True).stdout.decode("utf-8")
