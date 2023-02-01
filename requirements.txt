@@ -1,1 +1,6 @@
 jsonlines
+transformers
+torch
+ipykernel
+sentencepiece
+beautifulsoup4

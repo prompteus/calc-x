@@ -17,8 +17,9 @@ class Gadget(abc.ABC):
     def get_gadget_request_eos() -> str:
         return Gadget.eos_template
 
+    @staticmethod
     @abc.abstractmethod
-    def gadget_id(self) -> str:
+    def gadget_id() -> str:
         ...
 
     @abc.abstractmethod
@@ -32,11 +33,12 @@ class Gadget(abc.ABC):
 
 class Calculator(Gadget):
 
+    @staticmethod
+    def gadget_id() -> str:
+        return "calculator"
+
     def setup(self):
         pass
-
-    def gadget_id(self) -> str:
-        return "calculator"
 
     def __call__(self, input_str: str) -> str:
         return subprocess.run(["python3", "-c", f"print(eval('{input_str}'))"], capture_output=True).stdout.decode("utf-8")
