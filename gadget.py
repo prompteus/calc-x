@@ -1,10 +1,21 @@
 import abc
 import subprocess
 
+
 class Gadget(abc.ABC):
+
+    bos_template = "<gadget %s>"
+    eos_template = "</gadget>"
 
     def __init__(self):
         pass
+
+    def get_gadget_request_bos(self) -> str:
+        return self.bos_template % self.gadget_id()
+
+    @staticmethod
+    def get_gadget_request_eos() -> str:
+        return Gadget.eos_template
 
     @abc.abstractmethod
     def gadget_id(self) -> str:
