@@ -7,3 +7,5 @@ beautifulsoup4
 names_dataset
 inflect
 evaluate
+names_dataset
+inflect
