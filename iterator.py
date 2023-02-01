@@ -1,5 +1,5 @@
 import abc
-from chain_gen import get_random_chain, chain_gen
+from typing import Tuple
 
 class DataIterator(abc.ABC):
     @abc.abstractmethod
