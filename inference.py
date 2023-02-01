@@ -22,6 +22,11 @@ def generate_with_gadgets(
 
     Final answer is expected to be in <answer></answer> tag.
 
+    Warning:
+        if the model generates <gadget id=""></gadgets> tag without EOS immediately after,
+        it will not be executed. If it generates multiple <gadget id=""></gadgets> tags 
+        and only then EOS, only the last one will be executed.
+
     Args:
         model: Model to use for generation.
         tokenizer: Tokenizer to use for generation.
