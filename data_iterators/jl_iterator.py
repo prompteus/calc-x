@@ -33,29 +33,20 @@ class JLIterator(DataIterator):
         """
         self.path = path
         self.tags = tags
-        self.reader = None
-        self.iter_called = False
+        self.objs = []
+        self.index = 0
 
-
-    def __enter__(self):
-        self.reader = jsonlines.open(self.path)
-        self.iterator = iter(self.reader)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.reader.close()
+        with jsonlines.open(self.path) as reader:
+            for obj in reader:
+                self.objs.append(obj)
 
     def __iter__(self):
-        if self.iter_called:
-            raise Exception("iter was called multiple times")
-        self.iter_called = True
         return self
 
     def __next__(self):
-        if self.reader is None:
-            raise Exception("File not open. Use the `with:` bolock.")
-
-        obj = next(self.iterator)
+        obj = self.objs[self.index]
+        self.index += 1
+        self.index %= len(self.objs)
 
         chain = []
         for link in obj["chain"]:
@@ -77,6 +68,6 @@ class JLIterator(DataIterator):
 
 if __name__ == "__main__":
     jli = JLIterator("sample_data/word_problems_petr.jl")
-    with jli:
-        for tup in jli:
-            print(tup)
+    for tup in jli:
+        print(tup)
+        break
