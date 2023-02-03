@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 import torch
 import transformers
 from bs4 import BeautifulSoup
@@ -14,6 +15,7 @@ def generate_with_gadgets(
     prompt: str,
     enabled_gadgets: list[type[Gadget]],
     generate_kwargs: dict[str, Any] | None = None,
+    max_total_tokens: int = 1000,
 ) -> tuple[str, str | None]:
     """
     Generates text with gadgets.
@@ -24,11 +26,6 @@ def generate_with_gadgets(
 
     Final answer is expected to be in <answer></answer> tag.
 
-    Warning:
-        if the model generates <gadget id=""></gadgets> tag without EOS immediately after,
-        it will not be executed. If it generates multiple <gadget id=""></gadgets> tags 
-        and only then EOS, only the last one will be executed.
-
     Args:
         model: Model to use for generation.
         tokenizer: Tokenizer to use for generation.
@@ -37,7 +34,7 @@ def generate_with_gadgets(
         generate_kwargs: Keyword arguments to pass to model.generate()
 
     Returns:
-        full_output: Full output of the model, including gadget responses.
+        full_output: Full structured output of the model, including gadget, output, and answer tags.
         final_answer: Final answer of the model, or None if not found.
     """
 
@@ -54,56 +51,60 @@ def generate_with_gadgets(
     for gadget in gadgets.values():
         gadget.setup()
 
-    force_words_ids = tokenizer(
-        ["<gadget id='calculator'>", "</gadget>"],
-        add_special_tokens=False
-    ).input_ids
-
     while True:
+        num_total_tokens = sum(map(len, total_outputs))
+
+        if num_total_tokens >= max_total_tokens:
+            final_answer = None
+            break
+
         if len(total_outputs) == 0:
-            output: transformers.utils.ModelOutput = model.generate(
+            model_output: transformers.utils.ModelOutput = model.generate(
                 input_ids=prompt_inputs,
-                force_words_ids=force_words_ids,
+                max_new_tokens=max_total_tokens - num_total_tokens,
                 **generate_kwargs,
             )[0]
         else:
-            output: transformers.utils.ModelOutput = model.generate(
+            model_output: transformers.utils.ModelOutput = model.generate(
                 input_ids=prompt_inputs,
                 decoder_input_ids=torch.cat(total_outputs),
-                force_words_ids=force_words_ids,
+                max_new_tokens=max_total_tokens - num_total_tokens,
                 **generate_kwargs
             )[0]
 
-        output_str = tokenizer.decode(output, skip_special_tokens=True)
-        
-        total_outputs.append(output)
-        if not output_str.rstrip().endswith("</gadget>"):
-            break
-        
+        model_output_str = tokenizer.decode(model_output, skip_special_tokens=True)
+
         try:
-            soup = BeautifulSoup(output_str, features="html.parser")
-            last_tag = list(soup.find_all("gadget"))[-1]
-            gadget_id = last_tag["id"]
-            gadget = gadgets[gadget_id]
-            gadget_request = last_tag.get_text()
-            gadget_response = gadget(gadget_request)
-        except KeyError:
-            gadget_response = f">Gadget not found: {gadget_id}"
+            doc = BeautifulSoup(model_output_str, features="html.parser")
+        except Exception as e:
+            total_outputs.append(model_output)
+            warnings.warn(f"Failed to parse model output: {e}")
+            continue
+        
+        gadget_tags = doc.find_all("gadget")
+        for gadget_tag_input in gadget_tags:
+            gadget_input = gadget_tag_input.get_text()
+            try: 
+                gadget_id = gadget_tag_input["id"]
+                gadget = gadgets[gadget_id]
+                gadget_output = gadget(gadget_input)
+            except KeyError:
+                gadget_output = f"ERROR: Gadget '{gadget_id}' not found"
 
-        gadget_response_inputs = tokenizer(
-            f"<output>{gadget_response}</output>\n",
-            return_tensors="pt"
-        ).input_ids[0]
+            gadget_tag_output = doc.new_tag("output")
+            gadget_tag_output.string = gadget_output
+            gadget_tag_input.insert_after(gadget_tag_output)
 
-        total_outputs.append(gadget_response_inputs)
+        replaced_output_str = doc.prettify()
+        replaced_output = tokenizer(replaced_output_str + "\n", return_tensors="pt").input_ids[0]
+        total_outputs.append(replaced_output)
+            
+        if doc.find("answer") is not None:
+            final_answer = doc.find_all("answer")[-1].get_text()
+            break
 
     total_outputs_str = tokenizer.decode(torch.cat(total_outputs), skip_special_tokens=True)
-    try:
-        final_answer = BeautifulSoup(total_outputs_str, features="html.parser").find_all("answer")[-1].get_text()
-    except Exception:
-        final_answer = None
-
-    return tokenizer.decode(torch.cat(total_outputs), skip_special_tokens=True), final_answer
+    return total_outputs_str, final_answer
 
 
 
@@ -113,7 +114,6 @@ str_gadget_usage = "<gadget id='calculator'>2+2</gadget>"
 str_gadget_output = "<output>4</output>"
 str_final_answer = "129818"
 str_final_with_tag = f"Final answer is <answer>{str_final_answer}</answer>."
-str_final_no_tag = f"Final answer is {str_final_answer}."
 
 
 def test_generate_check_outputs(
@@ -142,17 +142,25 @@ def test_generate_check_outputs(
                 num_return_sequences=1,
                 no_repeat_ngram_size=1,
                 remove_invalid_values=True,
-                max_length=100,
             ),
         )
 
     expected_full_output = BeautifulSoup(" ".join(expected_full_outputs), features="html.parser").prettify()
     full_output = BeautifulSoup(full_output, features="html.parser").prettify()
 
-    output_matches = full_output == expected_full_output
-    answer_matches = final_answer == expected_final_answer
+    output_matches = _compare_strings_ignore_whitespace(full_output, expected_full_output)
+
+    if expected_final_answer is None:
+        answer_matches = final_answer is None
+    else:
+        answer_matches = _compare_strings_ignore_whitespace(final_answer, expected_final_answer)
+
     is_correct = output_matches and answer_matches
     return is_correct
+
+
+def _compare_strings_ignore_whitespace(str1: str, str2: str) -> bool:
+    return " ".join(str1.split()) == " ".join(str2.split())
 
 
 TESTS = [
@@ -162,19 +170,9 @@ TESTS = [
         "expected_final_answer": str_final_answer,
     },
     {
-        "mocked": [str_final_no_tag],
-        "expected_outputs": [str_final_no_tag],
-        "expected_final_answer": None,
-    },
-    {
-        "mocked": [str_let_me_think, str_gadget_usage],
-        "expected_outputs": [str_let_me_think],
-        "expected_final_answer": None,
-    },
-    {
-        "mocked": [str_let_me_think + " " + str_gadget_usage, ""],
-        "expected_outputs": [str_let_me_think + " " + str_gadget_usage, str_gadget_output, ""],
-        "expected_final_answer": None,
+        "mocked": [str_let_me_think, str_final_with_tag],
+        "expected_outputs": [str_let_me_think, str_final_with_tag],
+        "expected_final_answer": str_final_answer,
     },
     {
         "mocked": [str_gadget_usage, str_final_with_tag],
@@ -182,13 +180,13 @@ TESTS = [
         "expected_final_answer": str_final_answer,
     },
     {
-        "mocked": [str_gadget_usage, str_final_no_tag],
-        "expected_outputs": [str_gadget_usage, str_gadget_output, str_final_no_tag],
-        "expected_final_answer": None,
-    },
-    {
         "mocked": [str_gadget_usage, str_gadget_usage, str_final_with_tag],
         "expected_outputs": [str_gadget_usage, str_gadget_output, str_gadget_usage, str_gadget_output, str_final_with_tag],
+        "expected_final_answer": str_final_answer,
+    },
+    {
+        "mocked": [str_gadget_usage + str_gadget_usage, str_final_with_tag],
+        "expected_outputs": [str_gadget_usage + str_gadget_output + str_gadget_usage + str_gadget_output, str_final_with_tag],
         "expected_final_answer": str_final_answer,
     }
 ]
