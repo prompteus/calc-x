@@ -1,5 +1,5 @@
 import abc
-import subprocess
+import simpleeval
 
 
 class Gadget(abc.ABC):
@@ -45,7 +45,8 @@ class Calculator(Gadget):
         pass
 
     def __call__(self, input_str: str) -> str:
-        return subprocess.run(["python3", "-c", f"print(eval('{input_str}'))"], capture_output=True).stdout.decode("utf-8")
+        try:
+            return str(simpleeval.simple_eval(input_str))
+        except Exception as e:
+            return f"ERROR: {e}"
 
-
-foo = Calculator()
