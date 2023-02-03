@@ -48,9 +48,6 @@ def generate_with_gadgets(
 
     total_outputs: list[torch.Tensor] = []
 
-    for gadget in gadgets.values():
-        gadget.setup()
-
     while True:
         num_total_tokens = sum(map(len, total_outputs))
 
