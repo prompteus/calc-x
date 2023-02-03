@@ -1,6 +1,5 @@
 import abc
-import simpleeval
-
+import sympy
 
 class Gadget(abc.ABC):
 
@@ -28,10 +27,6 @@ class Gadget(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def setup(self):
-        ...
-
-    @abc.abstractmethod
     def __call__(self, input_str: str) -> str:
         ...
 
@@ -41,12 +36,12 @@ class Calculator(Gadget):
     def gadget_id() -> str:
         return "calculator"
 
-    def setup(self):
-        pass
-
     def __call__(self, input_str: str) -> str:
         try:
-            return str(simpleeval.simple_eval(input_str))
+            expr = sympy.parsing.sympy_parser.parse_expr(input_str, evaluate=True)
+            string = str(expr)
+            if not isinstance(expr, sympy.core.numbers.Float):
+                string += f" ~= {expr.evalf():.6f}"
+            return string
         except Exception as e:
             return f"ERROR: {e}"
-
