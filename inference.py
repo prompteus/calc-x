@@ -13,7 +13,7 @@ def generate_with_gadgets(
     model: transformers.T5ForConditionalGeneration,
     tokenizer: transformers.PreTrainedTokenizer,
     prompt: str,
-    enabled_gadgets: list[type[Gadget]],
+    enabled_gadgets: list[Gadget],
     generate_kwargs: dict[str, Any] | None = None,
     max_total_tokens: int = 1000,
 ) -> tuple[str, str | None]:
@@ -24,18 +24,18 @@ def generate_with_gadgets(
     Whenever a gadget tag and EOS is generated, the gadget is called, 
     and the output is fed back into the model inside <output></output> tag.
 
-    Final answer is expected to be in <answer></answer> tag.
+    Final result is expected to be in <result></result> tag.
 
     Args:
         model: Model to use for generation.
         tokenizer: Tokenizer to use for generation.
         prompt: Prompt to use for generation.
-        enabled_gadgets: List of enabled gadget classes.
+        enabled_gadgets: List of enabled gadgets.
         generate_kwargs: Keyword arguments to pass to model.generate()
 
     Returns:
-        full_output: Full structured output of the model, including gadget, output, and answer tags.
-        final_answer: Final answer of the model, or None if not found.
+        full_output: Full structured output of the model, including gadget, output, and result tags.
+        result: Final result of the model, or None if not found.
     """
 
     if generate_kwargs is None:
@@ -43,7 +43,7 @@ def generate_with_gadgets(
 
     prompt_inputs = tokenizer(prompt, return_tensors="pt").input_ids
     gadgets: dict[str, Gadget] = {
-        gadget_type.gadget_id(): gadget_type() for gadget_type in enabled_gadgets
+        g.gadget_id(): g for g in enabled_gadgets
     }
 
     total_outputs: list[torch.Tensor] = []
@@ -52,7 +52,7 @@ def generate_with_gadgets(
         num_total_tokens = sum(map(len, total_outputs))
 
         if num_total_tokens >= max_total_tokens:
-            final_answer = None
+            result = None
             break
 
         if len(total_outputs) == 0:
@@ -96,12 +96,12 @@ def generate_with_gadgets(
         replaced_output = tokenizer(replaced_output_str + "\n", return_tensors="pt").input_ids[0]
         total_outputs.append(replaced_output)
             
-        if doc.find("answer") is not None:
-            final_answer = doc.find_all("answer")[-1].get_text()
+        if doc.find("result") is not None:
+            result = doc.find_all("result")[-1].get_text()
             break
 
     total_outputs_str = tokenizer.decode(torch.cat(total_outputs), skip_special_tokens=True)
-    return total_outputs_str, final_answer
+    return total_outputs_str, result
 
 
 
@@ -109,8 +109,8 @@ str_prompt = "Write xml tag gadget id attribute id='calculator' and fill '2 + 2'
 str_let_me_think = "Let me think about it"
 str_gadget_usage = "<gadget id='calculator'>2+2</gadget>"
 str_gadget_output = "<output>4</output>"
-str_final_answer = "129818"
-str_final_with_tag = f"Final answer is <answer>{str_final_answer}</answer>."
+str_result = "129818"
+str_result_with_tag = f"Final answer is <result>{str_result}</result>."
 
 
 def test_generate_check_outputs(
@@ -118,7 +118,7 @@ def test_generate_check_outputs(
     tokenizer: transformers.PreTrainedTokenizer,
     mocked_model_outputs: list[str],
     expected_full_outputs: list[str],
-    expected_final_answer: str | None,
+    expected_result: str | None,
     enabled_gadgets: list[type[Gadget]],
 ) -> bool:
 
@@ -129,7 +129,7 @@ def test_generate_check_outputs(
 
     with unittest.mock.patch.object(model, "generate") as patched_model:
         patched_model.side_effect = mocked_model_outputs_tokenized
-        full_output, final_answer = generate_with_gadgets(
+        full_output, result = generate_with_gadgets(
             model,
             tokenizer,
             str_prompt,
@@ -147,12 +147,12 @@ def test_generate_check_outputs(
 
     output_matches = _compare_strings_ignore_whitespace(full_output, expected_full_output)
 
-    if expected_final_answer is None:
-        answer_matches = final_answer is None
+    if expected_result is None:
+        result_matches = result is None
     else:
-        answer_matches = _compare_strings_ignore_whitespace(final_answer, expected_final_answer)
+        result_matches = _compare_strings_ignore_whitespace(result, expected_result)
 
-    is_correct = output_matches and answer_matches
+    is_correct = output_matches and result_matches
     return is_correct
 
 
@@ -162,29 +162,29 @@ def _compare_strings_ignore_whitespace(str1: str, str2: str) -> bool:
 
 TESTS = [
     {
-        "mocked": [str_final_with_tag],
-        "expected_outputs": [str_final_with_tag],
-        "expected_final_answer": str_final_answer,
+        "mocked": [str_result_with_tag],
+        "expected_outputs": [str_result_with_tag],
+        "expected_result": str_result,
     },
     {
-        "mocked": [str_let_me_think, str_final_with_tag],
-        "expected_outputs": [str_let_me_think, str_final_with_tag],
-        "expected_final_answer": str_final_answer,
+        "mocked": [str_let_me_think, str_result_with_tag],
+        "expected_outputs": [str_let_me_think, str_result_with_tag],
+        "expected_result": str_result,
     },
     {
-        "mocked": [str_gadget_usage, str_final_with_tag],
-        "expected_outputs": [str_gadget_usage, str_gadget_output, str_final_with_tag],
-        "expected_final_answer": str_final_answer,
+        "mocked": [str_gadget_usage, str_result_with_tag],
+        "expected_outputs": [str_gadget_usage, str_gadget_output, str_result_with_tag],
+        "expected_result": str_result,
     },
     {
-        "mocked": [str_gadget_usage, str_gadget_usage, str_final_with_tag],
-        "expected_outputs": [str_gadget_usage, str_gadget_output, str_gadget_usage, str_gadget_output, str_final_with_tag],
-        "expected_final_answer": str_final_answer,
+        "mocked": [str_gadget_usage, str_gadget_usage, str_result_with_tag],
+        "expected_outputs": [str_gadget_usage, str_gadget_output, str_gadget_usage, str_gadget_output, str_result_with_tag],
+        "expected_result": str_result,
     },
     {
-        "mocked": [str_gadget_usage + str_gadget_usage, str_final_with_tag],
-        "expected_outputs": [str_gadget_usage + str_gadget_output + str_gadget_usage + str_gadget_output, str_final_with_tag],
-        "expected_final_answer": str_final_answer,
+        "mocked": [str_gadget_usage + str_gadget_usage, str_result_with_tag],
+        "expected_outputs": [str_gadget_usage + str_gadget_output + str_gadget_usage + str_gadget_output, str_result_with_tag],
+        "expected_result": str_result,
     }
 ]
 
@@ -199,7 +199,7 @@ def test_generate_with_gadgets():
             tokenizer,
             test["mocked"],
             test["expected_outputs"],
-            test["expected_final_answer"],
+            test["expected_result"],
             enabled_gadgets=[Calculator],
         )
 

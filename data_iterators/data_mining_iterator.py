@@ -141,9 +141,9 @@ def make_viable_dataset(col_names):
             chain = f.getvalue()
 
             final_answer = f'''
-            <answer>
+            <result>
             {description}
-            </answer>'''
+            </result>'''
 
             return prompt, chain, final_answer
         except Exception as e:
