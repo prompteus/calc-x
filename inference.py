@@ -8,6 +8,7 @@ from typing import Any
 from gadget import Gadget, Calculator
 import unittest.mock
 
+from markup import GADGET_TAG, OUTPUT_TAG, RESULT_TAG
 
 def generate_with_gadgets(
     model: transformers.T5ForConditionalGeneration,
@@ -20,11 +21,11 @@ def generate_with_gadgets(
     """
     Generates text with gadgets.
     
-    Model is expected to generate <gadget id=""></gadgets> tags.
+    Model is expected to generate gadget tags.
     Whenever a gadget tag and EOS is generated, the gadget is called, 
-    and the output is fed back into the model inside <output></output> tag.
+    and the output is fed back into the model inside output tag.
 
-    Final result is expected to be in <result></result> tag.
+    Final result is expected to be in result tag.
 
     Args:
         model: Model to use for generation.
@@ -78,7 +79,7 @@ def generate_with_gadgets(
             warnings.warn(f"Failed to parse model output: {e}")
             continue
         
-        gadget_tags = doc.find_all("gadget")
+        gadget_tags = doc.find_all(GADGET_TAG)
         for gadget_tag_input in gadget_tags:
             gadget_input = gadget_tag_input.get_text()
             try: 
@@ -88,7 +89,7 @@ def generate_with_gadgets(
             except KeyError:
                 gadget_output = f"ERROR: Gadget '{gadget_id}' not found"
 
-            gadget_tag_output = doc.new_tag("output")
+            gadget_tag_output = doc.new_tag(OUTPUT_TAG)
             gadget_tag_output.string = gadget_output
             gadget_tag_input.insert_after(gadget_tag_output)
 
@@ -96,8 +97,8 @@ def generate_with_gadgets(
         replaced_output = tokenizer(replaced_output_str + "\n", return_tensors="pt").input_ids[0]
         total_outputs.append(replaced_output)
             
-        if doc.find("result") is not None:
-            result = doc.find_all("result")[-1].get_text()
+        if doc.find(RESULT_TAG) is not None:
+            result = doc.find_all(RESULT_TAG)[-1].get_text()
             break
 
     total_outputs_str = tokenizer.decode(torch.cat(total_outputs), skip_special_tokens=True)
@@ -107,10 +108,10 @@ def generate_with_gadgets(
 
 str_prompt = "Write xml tag gadget id attribute id='calculator' and fill '2 + 2' inside. "
 str_let_me_think = "Let me think about it"
-str_gadget_usage = "<gadget id='calculator'>2+2</gadget>"
-str_gadget_output = "<output>4</output>"
+str_gadget_usage = f"<{GADGET_TAG} id='calculator'>2+2</{GADGET_TAG}>"
+str_gadget_output = f"<{OUTPUT_TAG}>4</{OUTPUT_TAG}>"
 str_result = "129818"
-str_result_with_tag = f"Final answer is <result>{str_result}</result>."
+str_result_with_tag = f"Final answer is <{RESULT_TAG}>{str_result}</{RESULT_TAG}>."
 
 
 def test_generate_check_outputs(
@@ -200,7 +201,7 @@ def test_generate_with_gadgets():
             test["mocked"],
             test["expected_outputs"],
             test["expected_result"],
-            enabled_gadgets=[Calculator],
+            enabled_gadgets=[Calculator()],
         )
 
 if __name__ == "__main__":
