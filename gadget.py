@@ -36,6 +36,10 @@ class Calculator(Gadget):
     def gadget_id() -> str:
         return "calculator"
 
+    def _float_eval(self, input_str: str) -> float:
+        expr = sympy.parsing.sympy_parser.parse_expr(input_str, evaluate=True).evalf()
+        return float(expr)
+
     def __call__(self, input_str: str) -> str:
         try:
             expr = sympy.parsing.sympy_parser.parse_expr(input_str, evaluate=True)
