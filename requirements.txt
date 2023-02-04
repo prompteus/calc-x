@@ -6,5 +6,5 @@ sentencepiece
 beautifulsoup4
 names_dataset
 inflect
-sklearn
+scikit-learn
 sympy
