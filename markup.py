@@ -1,12 +1,12 @@
 import bs4
-from datatypes import GadgetInteraction, Chain
+from datatypes import Interaction, Chain
 
 GADGET_TAG = "gadget"
 OUTPUT_TAG = "output"
 RESULT_TAG = "result"
 
 
-def gadget_interaction_to_markup(iteraction: GadgetInteraction) -> tuple[bs4.Tag, bs4.Tag]:
+def gadget_interaction_to_markup(iteraction: Interaction) -> tuple[bs4.Tag, bs4.Tag]:
     tag = bs4.Tag(name=GADGET_TAG)
     tag["id"] = iteraction.gadget_id
     tag.string = iteraction.inputs
@@ -29,9 +29,9 @@ def to_model_markup(chain: Chain, result: str, add_result_sentence: bool = False
 
     for item in chain:
         if isinstance(item, tuple):
-            item = GadgetInteraction(*item)
+            item = Interaction(*item)
 
-        if isinstance(item, GadgetInteraction):
+        if isinstance(item, Interaction):
             tag, output_tag = gadget_interaction_to_markup(item)
             soup.append(tag)
             soup.append("\n")
@@ -81,7 +81,7 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
             except Exception as e:
                 raise e
 
-            chain.append(GadgetInteraction(gadget_id, inputs, outputs))
+            chain.append(Interaction(gadget_id, inputs, outputs))
 
         elif item.name == OUTPUT_TAG:
             continue
