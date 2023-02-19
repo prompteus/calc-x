@@ -3,23 +3,8 @@ import sympy
 
 class Gadget(abc.ABC):
 
-    bos_template = "<gadget id='%s'>"
-    eos_template = "</gadget>"
-    response_template = "<output>\n%s\n</output>"
-
     def __init__(self):
         pass
-
-    def get_gadget_request_bos(self) -> str:
-        return self.bos_template % self.gadget_id()
-
-    @staticmethod
-    def get_gadget_request_eos() -> str:
-        return Gadget.eos_template
-
-    @staticmethod
-    def get_gadget_request_eos() -> str:
-        return Gadget.eos_template
 
     @staticmethod
     @abc.abstractmethod

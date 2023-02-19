@@ -1,18 +1,24 @@
 import bs4
-from datatypes import Interaction, Chain, Example, Step
+import warnings
+
+
+from gadgets.datatypes import Interaction, Chain, Example, Step
 
 GADGET_TAG = "gadget"
 OUTPUT_TAG = "output"
 RESULT_TAG = "result"
 
 
-def step_to_markup(step: Step) -> bs4.BeautifulSoup:
+def step_to_markup(
+    step: Step,
+    eos_token_after_gadgets: str | None = None,
+) -> bs4.BeautifulSoup:
     if isinstance(step, str):
-        return bs4.BeautifulSoup(step + "\n", features="html")
+        return bs4.BeautifulSoup(step + "\n", features="html.parser")
     
     interaction: Interaction = step
 
-    soup = bs4.BeautifulSoup(features="html")
+    soup = bs4.BeautifulSoup(features="html.parser")
 
     tag = bs4.Tag(name=GADGET_TAG)
     tag["id"] = interaction.gadget_id
@@ -22,6 +28,9 @@ def step_to_markup(step: Step) -> bs4.BeautifulSoup:
     output_tag.string = interaction.outputs
 
     soup.append(tag)
+    if eos_token_after_gadgets is not None:
+        eos_str = bs4.BeautifulSoup(eos_token_after_gadgets, features="html.parser")
+        soup.append(eos_str)
     soup.append("\n")
     soup.append(output_tag)
     soup.append("\n")
@@ -29,7 +38,7 @@ def step_to_markup(step: Step) -> bs4.BeautifulSoup:
 
 
 def result_to_markup(result: str) -> bs4.BeautifulSoup:
-    soup = bs4.BeautifulSoup(features="html")
+    soup = bs4.BeautifulSoup(features="html.parser")
     tag = bs4.Tag(name=RESULT_TAG)
     tag.string = result
     soup.append(tag)
@@ -37,11 +46,20 @@ def result_to_markup(result: str) -> bs4.BeautifulSoup:
 
 
 def to_model_markup(
+    *,
     chain: Chain | None = None,
     result: str | None = None,
     example: Example | None = None,
     add_result_sentence: bool = False,
+    eos_token_after_gadgets: str | None = None,
 ) -> bs4.BeautifulSoup:
+    
+    if eos_token_after_gadgets is None:
+        warnings.warn(
+            "eos token is not set when converting to model markup. "
+            "The model will not know to pause generating after gadget call."
+        )
+
     if example is None and chain is None:
         raise ValueError("Either example or chain must be provided")
 
@@ -55,12 +73,12 @@ def to_model_markup(
         chain = example.chain
         result = example.result
     
-    soup = bs4.BeautifulSoup(features="html")
+    soup = bs4.BeautifulSoup("", features="html.parser")
 
     for step in chain:
         if isinstance(step, tuple):
             step = Interaction(*step)
-        soup.append(step_to_markup(step))
+        soup.append(step_to_markup(step, eos_token_after_gadgets))
 
     if add_result_sentence:
         soup.append("Final result is ")
@@ -72,7 +90,7 @@ def to_model_markup(
 
 def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | None]:
     if isinstance(markup, str):
-        markup = bs4.BeautifulSoup(markup, features="html")
+        markup = bs4.BeautifulSoup(markup, features="html.parser")
     else:
         # copy the markup so we don't modify the original
         markup = markup.copy()
@@ -110,3 +128,5 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
             result = item.string.strip()
 
     return chain, result
+
+
