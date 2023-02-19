@@ -77,7 +77,8 @@ def to_model_markup(
 
     for step in chain:
         if isinstance(step, tuple):
-            step = Interaction(*step)
+            gadget_id, inputs, outputs = step
+            step = Interaction(gadget_id=gadget_id, inputs=inputs, outputs=outputs)
         soup.append(step_to_markup(step, eos_token_after_gadgets))
 
     if add_result_sentence:
@@ -120,7 +121,8 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
             except Exception as e:
                 raise e
 
-            chain.append(Interaction(gadget_id, inputs, outputs))
+            interaction = Interaction(gadget_id=gadget_id, inputs=inputs, outputs=outputs)
+            chain.append(interaction)
 
         elif item.name == OUTPUT_TAG:
             continue
