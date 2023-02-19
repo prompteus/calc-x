@@ -11,13 +11,13 @@ import gadgets.datatypes
 
 class SyntheticIterator(DataIterator):
     def __init__(
-            self,
-            nouns_filepath: str | pathlib.Path,
-            names_filepath: str | pathlib.Path,
-            max_expressions = 3,
-            max_operand = 20,
-            seed: int | None = None,
-        ) -> None:
+        self,
+        nouns_filepath: str | pathlib.Path,
+        names_filepath: str | pathlib.Path,
+        max_expressions = 5,
+        max_operand = 100,
+        seed: int | None = None,
+    ) -> None:
         self.max_expressions = max_expressions
         self.max_operand = max_operand
         self.calculator = Calculator()
