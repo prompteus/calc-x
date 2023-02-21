@@ -22,11 +22,13 @@ class Calculator(Gadget):
         return "calculator"
 
     def _float_eval(self, input_str: str) -> float:
+        input_str = input_str.replace(",", "")
         expr = sympy.parsing.sympy_parser.parse_expr(input_str, evaluate=True).evalf()
         return float(expr)
 
     def __call__(self, input_str: str) -> str:
         try:
+            input_str = input_str.replace(",", "")
             expr = sympy.parsing.sympy_parser.parse_expr(input_str, evaluate=True)
             if isinstance(expr, sympy.core.numbers.Integer):
                 string = self.format_sympy_int(expr)
