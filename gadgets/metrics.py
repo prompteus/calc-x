@@ -7,6 +7,7 @@ import evaluate
 import transformers
 
 import gadgets.gadget
+import gadgets.markup
 
 
 def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> bool:
@@ -18,7 +19,7 @@ def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> boo
         pred_float = calculator._float_eval(pred)
         true_float = calculator._float_eval(true)
         return math.isclose(pred_float, true_float, abs_tol=abs_tol)
-    except (TypeError, SyntaxError, ValueError):
+    except:
         pass
 
     return False
