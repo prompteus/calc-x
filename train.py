@@ -1,4 +1,5 @@
 import itertools
+import os
 
 import torch
 import numpy as np
@@ -14,23 +15,30 @@ import gadgets.markup
 import gadgets.metrics
 from gadgets.data_iterators.synthetic_iterator import SyntheticIterator
 
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
-print([torch.cuda.get_device_properties(i) for i in range(torch.cuda.device_count())])
+for i in range(torch.cuda.device_count()):
+    print(i, torch.cuda.get_device_properties(i))
 
 
-model_name = "Salesforce/codet5-small"
+model_name = "Salesforce/codet5-large"
 
 
 wandb.init(
     project="gadgets",
     tags=[model_name, "calculator", "synthetic"],
     group="calculator-synthetic",
+    dir="/var/tmp/xkadlci2/gadgets/",
 )
 
 
 tokenizer = transformers.RobertaTokenizer.from_pretrained(model_name)
 model = gadgets.model.gadget_assisted_model(transformers.T5ForConditionalGeneration).from_pretrained(model_name)
-model.prepare_for_generate(tokenizer, enabled_gadgets=[gadgets.gadget.Calculator()])
+model.prepare_for_generate(
+    tokenizer,
+    enabled_gadgets=[gadgets.gadget.Calculator()],
+    default_max_tokens=400,
+)
 data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model=model)
 
 
@@ -60,7 +68,7 @@ eval_ds = datasets.Dataset.from_list(list(itertools.islice(eval_ds_endless, eval
 random_rng = np.random.default_rng(42)
 log_predictions_indices = random_rng.choice(
     range(eval_ds_size),
-    size=min(16, eval_ds_size),
+    size=min(32, eval_ds_size),
     replace=False,
 )
 
@@ -71,18 +79,18 @@ metrics = gadgets.metrics.MyMetrics(
 )
 
 training_args = transformers.Seq2SeqTrainingArguments(
-    output_dir="models/" + wandb.run.name,
+    output_dir="/var/tmp/xkadlci2/gadgets/models/" + wandb.run.name,
     learning_rate=5e-5,
     do_train=True,
     do_eval=True,
     warmup_steps=1000,
     max_steps=1_000_000,
-    per_device_train_batch_size=16,
-    gradient_accumulation_steps=4,
+    per_device_train_batch_size=32,
+    gradient_accumulation_steps=2,
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
     logging_steps=50,
-    eval_steps=200,
+    eval_steps=400,
     save_steps=400,
     evaluation_strategy="steps",
     fp16=True,
