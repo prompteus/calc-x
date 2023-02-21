@@ -103,4 +103,5 @@ class MyMetrics:
             "num_gadget_calls_pred": np.mean(num_gadget_calls_pred),
             "num_gadget_calls_true": np.mean(num_gadget_calls_true),
             "correct_results": np.mean(correct_results),
+            "correct_num_gadget_calls": np.mean(np.array(num_gadget_calls_pred) == np.array(num_gadget_calls_true)),
         }
