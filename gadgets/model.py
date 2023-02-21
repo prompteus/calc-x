@@ -41,9 +41,11 @@ class GadgetAssist(transformers.GenerationMixin):
         self,
         tokenizer: transformers.PreTrainedTokenizer,
         enabled_gadgets: list[Gadget],
+        default_max_tokens: int = 1000,
     ) -> None:
         self.tokenizer = tokenizer
         self.enabled_gadgets = enabled_gadgets
+        self.default_max_tokens = default_max_tokens
 
     def generate(
         self,
@@ -81,8 +83,6 @@ class GadgetAssist(transformers.GenerationMixin):
             g.gadget_id(): g for g in self.enabled_gadgets
         }
 
-        all_outputs: list[torch.Tensor] = []
-
         max_tokens = None
         min_tokens = None
 
@@ -99,11 +99,26 @@ class GadgetAssist(transformers.GenerationMixin):
         if "min_new_tokens" in kwargs:
             min_tokens = kwargs.pop("min_new_tokens")
 
-        while True:
-            num_total_tokens = sum(map(len, all_outputs))
+        if max_tokens is None:
+            max_tokens = self.default_max_tokens
 
-            if num_total_tokens >= max_tokens:
-                result_str = None
+        last_num_total_tokens: int | None = None
+        total_output_str: str = "" # TODO
+        result_str = None
+
+        while True:
+            total_output_encoded = self.tokenizer(
+                total_output_str,
+                add_special_tokens=False,
+                return_tensors="pt"
+            ).input_ids.to(self.device).to(torch.long)
+
+            num_total_tokens = total_output_encoded.shape[-1]
+            if last_num_total_tokens is not None and num_total_tokens <= last_num_total_tokens:
+                break
+            last_num_total_tokens = num_total_tokens
+
+            if num_total_tokens + 2 >= max_tokens:
                 break
 
             if max_tokens is not None:
@@ -111,8 +126,13 @@ class GadgetAssist(transformers.GenerationMixin):
             if min_tokens is not None:
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
-            if len(all_outputs) != 0:
-                kwargs["decoder_input_ids"] = torch.atleast_2d(torch.cat(all_outputs)).to(self.device)
+            # decoder_input_ids = torch.cat([
+            #     torch.tensor(self.tokenizer.bos_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
+            #     total_output_encoded
+            # ], dim=-1)
+
+            if total_output_encoded.shape[-1] != 0:
+                kwargs["decoder_input_ids"] = total_output_encoded
 
             model_output: transformers.utils.ModelOutput
             model_output = super().generate(
@@ -121,46 +141,60 @@ class GadgetAssist(transformers.GenerationMixin):
                 **kwargs,
             )[0] # TODO This does not work in batch mode
             # which occurs in evaluation during training
-
-            model_output_str = self.tokenizer.decode(model_output, skip_special_tokens=True)
+            
+            # model.generate() outputs starts with decoder_input_ids
+            total_output_str = self.tokenizer.decode(model_output, skip_special_tokens=True)
 
             try:
-                doc = bs4.BeautifulSoup(model_output_str, features="html.parser")
+                doc = bs4.BeautifulSoup(total_output_str, features="html.parser")
             except Exception as e:
-                all_outputs.append(model_output)
                 warnings.warn(f"Failed to parse model output: {e}")
                 continue
             
-            gadget_tags = doc.find_all(GADGET_TAG)
+            gadget_tags: list[bs4.Tag] = doc.find_all(GADGET_TAG)
+            evaluated_something = False
             for gadget_tag_input in gadget_tags:
+                next_el = gadget_tag_input.next_sibling
+                if isinstance(next_el, bs4.Tag) and next_el.name == OUTPUT_TAG:
+                    # already evaluated this gadget tag
+                    continue
+                evaluated_something = True
                 gadget_input = gadget_tag_input.get_text()
-                try: 
-                    gadget_id = gadget_tag_input["id"]
-                    gadget = running_gadgets[gadget_id]
-                    gadget_output = gadget(gadget_input)
-                except KeyError:
+                gadget_id = gadget_tag_input.get("id", None)
+                gadget = running_gadgets.get(gadget_id, None)
+                if gadget is None:
                     gadget_output = f"ERROR: Gadget '{gadget_id}' not found"
+                else:
+                    gadget_output = gadget(gadget_input)
 
                 gadget_tag_output = doc.new_tag(OUTPUT_TAG)
                 gadget_tag_output.string = gadget_output
                 gadget_tag_input.insert_after(gadget_tag_output)
 
-            replaced_output_str = doc.prettify()
-            replaced_output = self.tokenizer(replaced_output_str + "\n", return_tensors="pt").input_ids.flatten()
-            all_outputs.append(replaced_output)
-                
+            if evaluated_something:
+                # replace total_output_str with the evaluated version
+                total_output_str = str(doc)
+
+            width = 80
+            print(" PARTIAL MODEL OUTPUT ".center(width, "="))
+            print(total_output_str)
+            print("="*width)
+
             if doc.find(RESULT_TAG) is not None:
                 result_str = doc.find_all(RESULT_TAG)[-1].get_text()
                 result_tensor = self.tokenizer(result_str, return_tensors="pt", add_special_tokens=False).input_ids
                 break
 
-        output_tensor = torch.atleast_2d(torch.cat(all_outputs)).to(self.device)
-        output_str = self.tokenizer.batch_decode(output_tensor, skip_special_tokens=True)[0]
+        output_tensor = self.tokenizer.encode(
+            total_output_str,
+            return_tensors="pt",
+            add_special_tokens=True,
+        )
 
         if return_as_str:
             if return_result:
-                return output_str, result_str
-            return output_str
+                return total_output_str, result_str
+            return total_output_str
     
         if return_result:
             return output_tensor, result_tensor
@@ -210,6 +244,8 @@ def test_generate_check_outputs(
         full_output, result = model.generate(
             str_prompt,
             return_result=True,
+            return_as_str=True,
+            max_length=400,
             num_beams=3,
             num_return_sequences=1,
             no_repeat_ngram_size=1,
