@@ -12,8 +12,7 @@ class Preprocessing:
             example = gadgets.datatypes.Example(**example)
 
         soup = gadgets.markup.to_model_markup(
-            example=example, 
-            eos_token_after_gadgets=self.tokenizer.eos_token,
+            example=example,
             add_result_sentence=True,
         )
 
