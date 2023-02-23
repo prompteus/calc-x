@@ -21,13 +21,15 @@ class StopAfterGadgetCall(transformers.generation.StoppingCriteria):
         ).input_ids.flatten()
 
     def __call__(self, seq_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
-        # check if </gadget> is generated
         if seq_ids.shape[-1] < self.closing_tag_ids.shape[-1]:
             return False
         
+        # check if </gadget> is at the end of the sequence
         self.closing_tag_ids = self.closing_tag_ids.to(seq_ids.device)
-        patches = seq_ids.unfold(-1, len(self.closing_tag_ids), 1)
-        return (patches == self.closing_tag_ids).all(dim=-1).any().item()
+        ending = seq_ids[..., -self.closing_tag_ids.shape[-1]:]
+        ends_with_gadget_call = torch.all(ending == self.closing_tag_ids)
+        return ends_with_gadget_call
+    
 
 
 class GadgetAssist(transformers.GenerationMixin):
@@ -103,12 +105,12 @@ class GadgetAssist(transformers.GenerationMixin):
             max_tokens = self.default_max_tokens
 
         last_num_total_tokens: int | None = None
-        total_output_str: str = "" # TODO
+        total_output_str: str = ""
         result_str = None
 
         while True:
             total_output_encoded = self.tokenizer(
-                total_output_str,
+                text_target=total_output_str,
                 add_special_tokens=False,
                 return_tensors="pt"
             ).input_ids.to(self.device).to(torch.long)
@@ -126,18 +128,19 @@ class GadgetAssist(transformers.GenerationMixin):
             if min_tokens is not None:
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
-            # decoder_input_ids = torch.cat([
-            #     torch.tensor(self.tokenizer.bos_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
-            #     total_output_encoded
-            # ], dim=-1)
-
-            if total_output_encoded.shape[-1] != 0:
-                kwargs["decoder_input_ids"] = total_output_encoded
+            decoder_input_ids = torch.cat([
+                torch.tensor(
+                    self.config.decoder_start_token_id,
+                    dtype=torch.long
+                ).to(self.device).reshape(1, 1),
+                total_output_encoded
+            ], dim=-1)
 
             model_output: transformers.utils.ModelOutput
             model_output = super().generate(
                 input_ids=inputs,
                 stopping_criteria=stopping_criteria,
+                decoder_input_ids=decoder_input_ids,
                 **kwargs,
             )[0] # TODO This does not work in batch mode
             # which occurs in evaluation during training
@@ -155,6 +158,9 @@ class GadgetAssist(transformers.GenerationMixin):
             evaluated_something = False
             for gadget_tag_input in gadget_tags:
                 next_el = gadget_tag_input.next_sibling
+                while next_el is not None and isinstance(next_el, bs4.NavigableString) and next_el.strip() == "":
+                    # skip whitespace
+                    next_el = next_el.next_sibling
                 if isinstance(next_el, bs4.Tag) and next_el.name == OUTPUT_TAG:
                     # already evaluated this gadget tag
                     continue
@@ -170,6 +176,8 @@ class GadgetAssist(transformers.GenerationMixin):
                 gadget_tag_output = doc.new_tag(OUTPUT_TAG)
                 gadget_tag_output.string = gadget_output
                 gadget_tag_input.insert_after(gadget_tag_output)
+                gadget_tag_input.insert_after("\n")
+                gadget_tag_output.insert_after("\n")
 
             if evaluated_something:
                 # replace total_output_str with the evaluated version
@@ -183,7 +191,6 @@ class GadgetAssist(transformers.GenerationMixin):
             if doc.find(RESULT_TAG) is not None:
                 result_str = doc.find_all(RESULT_TAG)[-1].get_text()
                 result_tensor = self.tokenizer(result_str, return_tensors="pt", add_special_tokens=False).input_ids
-                break
 
         output_tensor = self.tokenizer.encode(
             total_output_str,
