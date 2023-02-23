@@ -17,7 +17,7 @@ class Preprocessing:
         )
 
         inputs = self.tokenizer(example.prompt, truncation=True)
-        labels = self.tokenizer(str(soup), truncation=True)
+        labels = self.tokenizer(text_target=str(soup), truncation=True)
         
         return {
             "input_ids": inputs.input_ids,
