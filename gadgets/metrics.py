@@ -8,6 +8,7 @@ import transformers
 
 import gadgets.gadget
 import gadgets.markup
+import gadgets.datatypes
 
 
 def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> bool:
@@ -34,9 +35,12 @@ class MyMetrics:
     ) -> None:
         self.sacrebleu = evaluate.load("sacrebleu")
         self.rouge = evaluate.load("rouge")
-        self.log_predictions = log_predictions
-        self.log_predictions_indices = list(log_predictions_indices)
         self.tokenizer = tokenizer
+        self.log_predictions = log_predictions
+        if log_predictions:
+            self.log_predictions_indices = list(log_predictions_indices)
+        else:
+            self.log_predictions_indices = None
 
     def __call__(self, eval_preds: transformers.EvalPrediction) -> dict[str, float]:
         preds = eval_preds.predictions

@@ -85,7 +85,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=1_000_000,
-    per_device_train_batch_size=32,
+    per_device_train_batch_size=64,
     gradient_accumulation_steps=2,
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
@@ -98,6 +98,10 @@ training_args = transformers.Seq2SeqTrainingArguments(
     generation_max_length=400,
     include_inputs_for_metrics=True,
     report_to="wandb",
+    metric_for_best_model="correct_results",
+    greater_is_better=True,
+    load_best_model_at_end=True,
+    save_total_limit=3,
 )
 
 trainer = transformers.Seq2SeqTrainer(
