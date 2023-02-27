@@ -1,11 +1,11 @@
 import math
 import re
 
-import gadget
-import datatypes
+import gadgets.gadget
+import gadgets.datatypes
 
 
-def parse(sample: dict[str, str]) -> datatypes.Example:
+def parse(sample: dict[str, str]) -> gadgets.datatypes.Example:
     """
     >>> import datasets
     >>> dataset = datasets.load_dataset("gsm8k", "main")
@@ -26,14 +26,14 @@ def parse(sample: dict[str, str]) -> datatypes.Example:
     assert "answer" in sample, "answer is missing"
     assert "question" in sample, "question is missing"
 
-    calc = gadget.Calculator()
+    calc = gadgets.gadget.Calculator()
 
     result: str = sample["answer"]
     chain_str, result = result.split("####")
     result = result.strip()
     calc_re = re.compile(r"<<(.*?)=(.*?)>>", flags=re.MULTILINE)
 
-    chain: datatypes.Chain = []
+    chain: gadgets.datatypes.Chain = []
 
     last_index = 0
     for match in calc_re.finditer(chain_str):
@@ -50,13 +50,17 @@ def parse(sample: dict[str, str]) -> datatypes.Example:
         actual = calc._float_eval(gadget_input)
         assert math.isclose(expected, actual), f"{expected} != {actual}"
 
-        interaction = datatypes.Interaction(gadget_id="calculator", inputs=gadget_input, outputs=gadget_output)
+        interaction = gadgets.datatypes.Interaction(
+            gadget_id="calculator",
+            inputs=gadget_input,
+            outputs=gadget_output,
+        )
         chain.append(interaction)
 
     if last_index < len(chain_str):
         chain.append(chain_str[last_index:])
 
-    return datatypes.Example(
+    return gadgets.datatypes.Example(
         prompt=sample["question"],
         chain=chain,
         result=result,
