@@ -68,7 +68,11 @@ def to_model_markup(
         soup.append(step_to_markup(step))
 
     if add_result_sentence:
-        soup.append("Final result is ")
+        str_soup = str(soup)
+        result_sentence = "Final result is "
+        if len(str_soup.strip()) > 0 and not str_soup.strip().endswith("."):
+            result_sentence = ". " + result_sentence
+        soup.append(result_sentence)
 
     soup.append(result_to_markup(result))
 
