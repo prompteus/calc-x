@@ -54,9 +54,9 @@ class MyMetrics:
         trues = np.where(trues != -100, trues, self.tokenizer.pad_token_id)
         inputs = np.where(inputs != -100, inputs, self.tokenizer.pad_token_id)
 
-        preds_str = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
-        trues_str = self.tokenizer.batch_decode(trues, skip_special_tokens=True)
-        inputs_str = self.tokenizer.batch_decode(inputs, skip_special_tokens=True)
+        preds_str = self.tokenizer.batch_decode(preds, skip_special_tokens=True, spaces_between_special_tokens=False)
+        trues_str = self.tokenizer.batch_decode(trues, skip_special_tokens=True, spaces_between_special_tokens=False)
+        inputs_str = self.tokenizer.batch_decode(inputs, skip_special_tokens=True, spaces_between_special_tokens=False)
 
         sacrebleu_score = self.sacrebleu.compute(predictions=preds_str, references=trues_str)
         rouge_scores = self.rouge.compute(predictions=preds_str, references=trues_str)
@@ -70,7 +70,7 @@ class MyMetrics:
         for pred, true in zip(preds_str, trues_str):
             pred_chain, pred_result = gadgets.markup.from_model_markup(pred)
             true_chain, true_result = gadgets.markup.from_model_markup(true)
-            assert true_result is not None
+            assert true_result is not None, true_chain
             pred_result = "" if pred_result is None else pred_result
             true_result = "" if true_result is None else true_result
             correct_results.append(are_numeric_results_same(pred_result, true_result))
