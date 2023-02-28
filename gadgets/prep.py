@@ -8,9 +8,11 @@ class Preprocessing:
         self,
         tokenizer: transformers.PreTrainedTokenizer,
         add_result_sentence: bool = True,
+        prompt_prefix: str | None = None,
     ) -> None:
         self.tokenizer = tokenizer
         self.add_result_sentence = add_result_sentence
+        self.prompt_prefix = prompt_prefix
 
     def __call__(self, example: gadgets.datatypes.Example | dict) -> dict[str, list[int]]:
         if isinstance(example, dict):
@@ -21,7 +23,12 @@ class Preprocessing:
             add_result_sentence=self.add_result_sentence,
         )
 
-        inputs = self.tokenizer(example.prompt, truncation=True)
+        if self.prompt_prefix is not None:
+            prompt = f"{self.prompt_prefix} {example.prompt}"
+        else:
+            prompt = example.prompt
+
+        inputs = self.tokenizer(prompt, truncation=True)
         labels = self.tokenizer(text_target=str(soup), truncation=True)
         
         return {
