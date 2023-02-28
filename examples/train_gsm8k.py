@@ -6,13 +6,7 @@ import wandb
 import transformers
 import datasets
 
-import gadgets.prep
-import gadgets.datatypes
-import gadgets.model
-import gadgets.gadget
-import gadgets.markup
-import gadgets.gsm8k
-import gadgets.metrics
+import gadgets
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
