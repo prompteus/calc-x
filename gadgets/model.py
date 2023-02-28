@@ -146,7 +146,11 @@ class GadgetAssist(transformers.GenerationMixin):
             # which occurs in evaluation during training
             
             # model.generate() outputs starts with decoder_input_ids
-            total_output_str = self.tokenizer.decode(model_output, skip_special_tokens=True)
+            total_output_str = self.tokenizer.decode(
+                model_output,
+                skip_special_tokens=True,
+                spaces_between_special_tokens=False,
+            )
 
             try:
                 doc = bs4.BeautifulSoup(total_output_str, features="html.parser")
