@@ -24,7 +24,7 @@ class Preprocessing:
         )
 
         if self.prompt_prefix is not None:
-            prompt = f"{self.prompt_prefix} {example.prompt}"
+            prompt = f"{self.prompt_prefix}{example.prompt}"
         else:
             prompt = example.prompt
 
