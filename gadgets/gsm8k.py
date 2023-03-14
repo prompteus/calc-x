@@ -1,11 +1,12 @@
 import math
 import re
+from typing import Dict
 
 import gadgets.gadget
 import gadgets.datatypes
 
 
-def parse(sample: dict[str, str]) -> gadgets.datatypes.Example:
+def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
     """
     >>> import datasets
     >>> dataset = datasets.load_dataset("gsm8k", "main")

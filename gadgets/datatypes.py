@@ -1,4 +1,7 @@
+from typing import Union, List
+
 import pydantic
+
 
 class Interaction(pydantic.BaseModel):
     """
@@ -15,9 +18,11 @@ class Interaction(pydantic.BaseModel):
     inputs: str
     outputs: str
 
-Step = str | Interaction
 
-Chain = list[Step]
+Step = Union[str, Interaction]
+
+Chain = List[Step]
+
 
 class Example(pydantic.BaseModel):
     """
@@ -43,4 +48,3 @@ class Example(pydantic.BaseModel):
     prompt: str
     chain: Chain
     result: str
-

@@ -1,4 +1,7 @@
+from typing import Optional, Dict, List
+
 import transformers
+
 import gadgets.datatypes
 import gadgets.markup
 
@@ -8,13 +11,13 @@ class Preprocessing:
         self,
         tokenizer: transformers.PreTrainedTokenizer,
         add_result_sentence: bool = True,
-        prompt_prefix: str | None = None,
+        prompt_prefix: Optional[str] = None,
     ) -> None:
         self.tokenizer = tokenizer
         self.add_result_sentence = add_result_sentence
         self.prompt_prefix = prompt_prefix
 
-    def __call__(self, example: gadgets.datatypes.Example | dict) -> dict[str, list[int]]:
+    def __call__(self, example: gadgets.datatypes.Example | Dict) -> Dict[str, List[int]]:
         if isinstance(example, dict):
             example = gadgets.datatypes.Example(**example)
 
