@@ -22,6 +22,7 @@ rouge-score = "^0.1.2"
 wandb = "^0.13.10"
 protobuf = "3.20"
 accelerate = "^0.16.0"
+lark = "^1.1.5"
 
 
 [tool.poetry.group.dev.dependencies]
