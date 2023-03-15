@@ -112,4 +112,3 @@ trainer = transformers.Seq2SeqTrainer(
 )
 
 trainer.train()
-trainer.evaluate(metric_key_prefix="test")
