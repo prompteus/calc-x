@@ -1,4 +1,5 @@
 import os
+import random
 
 import torch
 import numpy as np
@@ -15,7 +16,7 @@ for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
 
-model_name = "google/flan-t5-small"
+model_name = "google/flan-t5-large"
 
 
 wandb.init(
@@ -69,6 +70,9 @@ aqua = datasets.load_dataset("aqua_rat", split="train").map(parse_and_preprocess
 gsm8k = datasets.load_dataset("gsm8k", "main").map(parse_and_preprocess_gsm)
 
 train_valid_ds = gsm8k["train"].train_test_split(test_size=400, seed=42)
+
+gsm_idx = list(range(len(train_valid_ds["train"])))
+train_valid_ds["train"] = train_valid_ds["train"].select(random.choice(gsm_idx) for _ in range(len(aqua)))
 
 train_ds = concatenate_datasets([train_valid_ds["train"], aqua])
 train_ds = train_ds.shuffle()
