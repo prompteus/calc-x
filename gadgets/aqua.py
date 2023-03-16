@@ -101,6 +101,10 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
         if math.isclose(expected, actual):
             chain = chain[:-1]
             chain.append(original_left_right_substr.split(gadget_input.strip())[0] + gadget_input)
+            if len(chain) > 1 and isinstance(chain[-2], gadgets.datatypes.Interaction) and chain[-1].startswith("="):
+                # for consistency with gsm, we do not follow with "=" if preceding element of chain was gadget call
+                chain[-1] = chain[-1][1:].strip()
+
             chain.append("= ")  # for consistency with gsm, "=" always precede gadget calls
             chain.append(gadgets.datatypes.Interaction(gadget_id="calculator",
                                                        inputs=gadget_input,
@@ -112,5 +116,8 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
             not_matched_eqs += 1
 
     chain.append(chain_str[eq_positions[-2]: eq_positions[-1]])
+    if len(chain) > 1 and isinstance(chain[-2], gadgets.datatypes.Interaction) and chain[-1].startswith("="):
+        # for consistency with gsm, we do not follow with "=" if preceding element of chain was gadget call
+        chain[-1] = chain[-1][1:].strip()
 
     return gadgets.datatypes.Example(prompt=sample["question"], chain=chain, result=correct_str)
