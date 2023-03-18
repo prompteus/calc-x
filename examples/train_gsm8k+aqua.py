@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import random
 
@@ -100,8 +102,8 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=1_000_000,
-    per_device_train_batch_size=32,
-    gradient_accumulation_steps=1,
+    per_device_train_batch_size=8,
+    gradient_accumulation_steps=4,
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
     logging_steps=50,
