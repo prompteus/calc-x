@@ -7,9 +7,9 @@ from typing import Dict
 import gadgets.gadget
 import gadgets.datatypes
 
-numeric_re = re.compile(r"[^\d\-\/\*\=\ \.\,\(\)]", flags=re.MULTILINE)  # same length as original
+numeric_re = re.compile(r"[^\d\+\-\/\*\=\ \.\,\(\)]", flags=re.MULTILINE)  # same length as original
 equals_re = re.compile(r"=", flags=re.MULTILINE)
-calc_input_re = re.compile(r"([\d\-\/\*\.\,\(\)\s*]+)\s*=\s*([\d\.]+)")
+calc_input_re = re.compile(r"([\d\+\-\/\*\.\,\(\)\s*]+)\s*=\s*([\d\.]+)")
 
 matched_eqs = 0
 not_matched_eqs = 0
@@ -41,7 +41,7 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
 
     calc = gadgets.gadget.Calculator()
 
-    chain_str = sample["rationale"].replace("\n", "   ")
+    chain_str = sample["rationale"].replace("\n", "   ").strip()
     correct_str = next(o.replace(sample['correct'] + ")", "").strip()
                        for o in sample["options"] if sample['correct'] + ")" in o)
     sent_separator = ". "
@@ -74,7 +74,8 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
             not_matched_eqs += 1
 
             continue
-        gadget_input = eq_left_right_groups.group(1).split("   ")[-1]  # split to consider newlines
+        # strip to avoid empty inputs with trailing spaces & split to be robust to inserted newlines
+        gadget_input = eq_left_right_groups.group(1).strip().split("   ")[-1]
         if not any(operator in gadget_input for operator in "+-/*^"):
             # no operation, just raw statement -> could be right equation side, processed in the previous step
             not_matched_eqs += 1
