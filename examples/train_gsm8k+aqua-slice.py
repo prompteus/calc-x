@@ -27,7 +27,7 @@ argparser.add_argument("--output_dir", type=str)
 argparser.add_argument("--model_name", type=str, default="google/flan-t5-large")
 argparser.add_argument("--wandb_project_name", type=str)
 argparser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,supervised",
-                       description="Coma-separater list of given wandb tags")
+                       help="Coma-separater list of given wandb tags")
 
 # (2) script-specific
 argparser.add_argument("--finetune_whole_model", type=bool, default=False)
@@ -35,8 +35,16 @@ argparser.add_argument("--finetune_percent", type=int, default=10, choices=[10, 
 
 args = argparser.parse_args()
 
+# PART: model init
+
+# TODO: set memory map for multi-GPU training
+max_memory_mapping = {0: "80GB", 1: "45GB", 2: "45GB"}
+
+gadget_model_cls = gadgets.model.gadget_assisted_model(transformers.T5ForConditionalGeneration)
+model = gadget_model_cls.from_pretrained(args.model_name, device_map="auto", max_memory={0: "80GB",
+                                                                                         1: "45GB",
+                                                                                         2: "45GB"})
 tokenizer = transformers.T5Tokenizer.from_pretrained(args.model_name)
-model = gadgets.model.gadget_assisted_model(transformers.T5ForConditionalGeneration).from_pretrained(args.model_name)
 
 # PART: update model for unknown tokens
 gadgets.utils.add_new_token(
