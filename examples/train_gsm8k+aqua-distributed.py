@@ -29,13 +29,14 @@ argparser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,
 argparser.add_argument("--local_rank", type=int, default=-1)
 
 # (2) script-specific
-argparser.add_argument("--finetune_whole_model", type=bool, default=True)  
+argparser.add_argument("--finetune_whole_model", type=str, default="True")
 # note that turning this to False will cause the training to fail on FSDP:
 # ValueError: `FlatParameter` requires uniform `requires_grad`
 
 argparser.add_argument("--finetune_percent", type=int, default=10, choices=[10, 20, 30, 40])
 
 args = argparser.parse_args()
+args.finetune_whole_model = args.finetune_whole_model == "True"
 
 # PART: model init
 gadget_model_cls = gadgets.model.gadget_assisted_model(transformers.T5ForConditionalGeneration)
