@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import os
-import random
 
 import datasets
 import numpy as np
 import transformers
-import wandb
 from datasets import concatenate_datasets
 from transformers import EarlyStoppingCallback
 
 import gadgets
+import wandb
 
 # IMHO this makes it even messier than before, but keeping it here for now
 
@@ -28,9 +26,13 @@ argparser.add_argument("--model_name", type=str, default="google/flan-t5-large")
 argparser.add_argument("--wandb_project_name", type=str)
 argparser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,supervised",
                        help="Coma-separater list of given wandb tags")
+argparser.add_argument("--local_rank", type=int, default=-1)
 
 # (2) script-specific
-argparser.add_argument("--finetune_whole_model", type=bool, default=False)
+argparser.add_argument("--finetune_whole_model", type=bool, default=True)  
+# note that turning this to False will cause the training to fail on FSDP:
+# ValueError: `FlatParameter` requires uniform `requires_grad`
+
 argparser.add_argument("--finetune_percent", type=int, default=10, choices=[10, 20, 30, 40])
 
 args = argparser.parse_args()
@@ -38,7 +40,7 @@ args = argparser.parse_args()
 # PART: model init
 gadget_model_cls = gadgets.model.gadget_assisted_model(transformers.T5ForConditionalGeneration)
 
-model = gadget_model_cls.from_pretrained(args.model_name, device_map="auto")
+model = gadget_model_cls.from_pretrained(args.model_name)  # no device_map
 tokenizer = transformers.T5Tokenizer.from_pretrained(args.model_name)
 
 # PART: update model for unknown tokens
@@ -80,11 +82,11 @@ def parse_and_preprocess_gsm(example: dict[str, str]):
 
 
 aqua = datasets.load_dataset("aqua_rat", split="train").map(parse_and_preprocess_aqua)
-aqua_val = datasets.load_dataset("aqua_rat", split="validation").map(parse_and_preprocess_aqua)
+aqua_val = datasets.load_dataset("aqua_rat", split="validation").map(parse_and_preprocess_aqua).select(range(100))
 
 gsm8k = datasets.load_dataset("gsm8k", "main").map(parse_and_preprocess_gsm)
 
-train_valid_ds = gsm8k["train"].train_test_split(test_size=400, seed=42)
+train_valid_ds = gsm8k["train"].train_test_split(test_size=100, seed=42)
 
 # upscaling GSM - we don't do that now
 # gsm_idx = list(range(len(train_valid_ds["train"])))
@@ -177,29 +179,36 @@ else:
 
 # PART: training configuration
 training_args = transformers.Seq2SeqTrainingArguments(
-    output_dir=os.path.join(args.output_dir, wandb.run.name),
-    learning_rate=5e-5,
+    output_dir=args.output_dir,
+    local_rank=args.local_rank,
+    # distributed GPU training params:
+    # shard optimizer + gradients + model params, shard automatically by the class name:
+    fsdp="full_shard auto_wrap",
+    # sharded class names:
+    fsdp_config={"fsdp_transformer_layer_cls_to_wrap": ["T5Block"]},
+    learning_rate=2e-5,
     do_train=True,
     do_eval=True,
-    warmup_steps=1000,
-    max_steps=1_000_000,
-    per_device_train_batch_size=32,
-    gradient_accumulation_steps=1,
+    warmup_steps=5000,
+    max_steps=50_000,
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=10,
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=50,
-    eval_steps=4000,
-    save_steps=4000,
+    logging_steps=100,
+    eval_steps=2000,
+    save_steps=2000,
     evaluation_strategy="steps",
     bf16=True,
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
-    report_to="wandb",
-    metric_for_best_model="correct_results",
+    # report_to="wandb",
+    metric_for_best_model="aqua_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=3,
+    save_total_limit=1,
+    # no place_model_on_device=True
 )
 
 trainer = transformers.Seq2SeqTrainer(
