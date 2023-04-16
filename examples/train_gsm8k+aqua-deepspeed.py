@@ -22,6 +22,8 @@ parser.add_argument("--model_name", type=str, default="google/flan-t5-xxl", help
 
 parser.add_argument("--finetune_whole_model", type=bool, default=False)
 parser.add_argument("--finetune_percent", type=int, default=10, choices=[10, 20, 30, 40])
+parser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,supervised",
+                    help="Coma-separater list of given wandb tags")
 
 # original Deepspeed arguments
 # add training hyperparameters for epochs, batch size, learning rate, and seed
