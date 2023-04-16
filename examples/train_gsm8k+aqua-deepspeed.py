@@ -169,14 +169,14 @@ elif args.use_slice_finetuning:
         param.requires_grad_(False)
 
     for name, param in model.named_parameters():
-        if any(train_name in name for train_name in finetuning_schemes[args.finetune_percent]):
+        if any(train_name in name for train_name in finetuning_schemes[args.slice_finetuning_percent]):
             param.requires_grad_(True)
 
     num_params_total = sum(p.numel() for p in model.parameters())
     num_params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     trainable_percent = num_params_trainable / num_params_total * 100
     print(f"Trainable parameters: {num_params_trainable} ({trainable_percent:.2f}%)")
-    assert abs(trainable_percent - args.finetune_percent) < 3, \
+    assert abs(trainable_percent - args.slice_finetuning_percent) < 3, \
         "Finetuning scheme is not correct. Maximum allowed difference is 3%."
 
 # PART: logging int
