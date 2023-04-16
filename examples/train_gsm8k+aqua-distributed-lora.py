@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import os
-import random
 
 import datasets
 import numpy as np
 import transformers
-import wandb
 from datasets import concatenate_datasets
 from transformers import EarlyStoppingCallback
 
 import gadgets
+import wandb
 
 # IMHO this makes it even messier than before, but keeping it here for now
 
@@ -22,23 +20,29 @@ import gadgets
 # global arguments:
 
 # (1) general
+
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--output_dir", type=str)
 argparser.add_argument("--model_name", type=str, default="google/flan-t5-large")
 argparser.add_argument("--wandb_project_name", type=str)
 argparser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,supervised",
                        help="Coma-separater list of given wandb tags")
+argparser.add_argument("--local_rank", type=int, default=-1)
 
 # (2) script-specific
-argparser.add_argument("--finetune_whole_model", type=bool, default=False)
-argparser.add_argument("--finetune_percent", type=int, default=10, choices=[10, 20, 30, 40])
+argparser.add_argument("--finetune_whole_model", type=str, default="True")
+# note that turning this to False will cause the training to fail on FSDP:
+# ValueError: `FlatParameter` requires uniform `requires_grad`
+
+argparser.add_argument("--lora_hidden_states_ratio", type=int, default=16)
 
 args = argparser.parse_args()
+args.finetune_whole_model = args.finetune_whole_model == "True"
 
 # PART: model init
 gadget_model_cls = gadgets.model.gadget_assisted_model(transformers.T5ForConditionalGeneration)
 
-model = gadget_model_cls.from_pretrained(args.model_name, device_map="auto")
+model = gadget_model_cls.from_pretrained(args.model_name)  # no device_map
 tokenizer = transformers.T5Tokenizer.from_pretrained(args.model_name)
 
 # PART: update model for unknown tokens
@@ -114,71 +118,34 @@ metrics = gadgets.metrics.MyMetrics(
 
 # PART: partial model finetuning
 if not args.finetune_whole_model:
-    finetuning_schemes = {
-        10: ("lm_head.weight",
-             "SelfAttention.v.weight"),
-        20: ("lm_head.weight",
-             "SelfAttention.v.weight",
-             "SelfAttention.k.weight",
-             "EncDecAttention.v.weight"),
-        30: ("lm_head.weight",
-             "SelfAttention.v.weight",
-             "SelfAttention.k.weight",
-             "SelfAttention.q.weight",
-             "EncDecAttention.v.weight",
-             "EncDecAttention.k.weight"),
-        40: ("lm_head.weight",
-             "SelfAttention.v.weight",
-             "SelfAttention.k.weight",
-             "SelfAttention.q.weight",
-             "SelfAttention.o.weight",
-             "EncDecAttention.v.weight",
-             "EncDecAttention.k.weight",
-             "EncDecAttention.q.weight"),
-    }
+    from gadgets.lora_utils import patch_linears_with_lora
+    import loralib
 
-    for param in model.parameters():
-        param.requires_grad_(False)
+    patch_linears_with_lora(model, r=args.lora_hidden_states_ratio)
 
-    for name, param in model.named_parameters():
-        if any(train_name in name for train_name in finetuning_schemes[args.finetune_percent]):
-            param.requires_grad_(True)
+    model.train()
+    loralib.mark_only_lora_as_trainable(model)
 
-    num_params_total = sum(p.numel() for p in model.parameters())
-    num_params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    trainable_percent = num_params_trainable / num_params_total * 100
-    print(f"Trainable parameters: {num_params_trainable} ({trainable_percent:.2f}%)")
-    assert abs(trainable_percent - args.finetune_percent) < 3, \
-        "Finetuning scheme is not correct. Maximum allowed difference is 3%."
-
-    wandb.init(
+wandb.init(
         project="gadgets",
         tags=[args.model_name] + args.wandb_tags.split(","),
         group=args.wandb_tags.replace(",", "-"),
         dir=args.output_dir,
-        save_code=True,
-        config={
-            "model_name": args.model_name,
-            "params_trained_percent": args.finetune_percent,
-            "params_trained_count": num_params_trainable,
-            "params_trained_pattern": finetuning_schemes[args.finetune_percent],
-            "params_trained": [name for name, param in model.named_parameters() if param.requires_grad],
-            "params_frozen": [name for name, param in model.named_parameters() if not param.requires_grad],
-        }
-    )
-else:
-    # fine-tuning of the whole model
-    wandb.init(
-        project="gadgets",
-        tags=[args.model_name] + args.wandb_tags.split(","),
-        group=args.wandb_tags.replace(",", "-"),
-        dir=args.output_dir,
+        config={"model_name": args.model_name,
+                "finetune_whole_model": args.finetune_whole_model,
+                "params_trained_percent": args.lora_hidden_states_ratio}
     )
 
 # PART: training configuration
 training_args = transformers.Seq2SeqTrainingArguments(
-    output_dir=os.path.join(args.output_dir, wandb.run.name),
-    learning_rate=5e-5,
+    output_dir=args.output_dir,
+    local_rank=args.local_rank,
+    # distributed GPU training params:
+    # shard optimizer + gradients + model params, shard automatically by the class name:
+    fsdp="full_shard auto_wrap",
+    # sharded class names:
+    fsdp_config={"fsdp_transformer_layer_cls_to_wrap": ["T5Block"]},
+    learning_rate=2e-5,
     do_train=True,
     do_eval=True,
     warmup_steps=5000,
@@ -195,11 +162,12 @@ training_args = transformers.Seq2SeqTrainingArguments(
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
-    report_to="wandb",
+    # report_to="wandb",
     metric_for_best_model="aqua_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=3,
+    save_total_limit=1,
+    # no place_model_on_device=True
 )
 
 trainer = transformers.Seq2SeqTrainer(
