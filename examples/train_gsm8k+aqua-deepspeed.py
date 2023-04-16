@@ -43,6 +43,10 @@ parser.add_argument("--bf16", type=bool, default=True if torch.cuda.get_device_c
 
 args, _ = parser.parse_known_args()
 
+# resolve boolean params
+args.use_lora = bool(args.use_lora)
+args.use_slice_finetuning = bool(args.use_slice_finetuning)
+
 # set seed
 set_seed(42)
 
