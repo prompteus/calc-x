@@ -56,14 +56,14 @@ preprocess = GadgetsInserter()
 # PART: datasets curation
 def parse_and_preprocess_aqua(example: dict[str, str]):
     example_with_gadgets = gadgets.aqua.parse(example)
-    input_sample = preprocess(example_with_gadgets)
-    return input_sample
+    # input_sample = preprocess(example_with_gadgets)
+    return example_with_gadgets
 
 
 def parse_and_preprocess_gsm(example: dict[str, str]):
-    example = gadgets.gsm8k.parse(example)
-    example = preprocess(example)
-    return example
+    example_with_gadgets = gadgets.gsm8k.parse(example)
+    # example = preprocess(example_with_gadgets)
+    return example_with_gadgets
 
 
 aqua = load_dataset("aqua_rat").map(parse_and_preprocess_aqua)
