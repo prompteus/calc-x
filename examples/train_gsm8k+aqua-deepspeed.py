@@ -21,8 +21,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--output_dir", type=str)
 parser.add_argument("--model_name", type=str, default="google/flan-t5-xxl", help="Model id to use for training.")
 
-parser.add_argument("--finetune_whole_model", type=bool, default=False)
-parser.add_argument("--finetune_percent", type=int, default=10, choices=[10, 20, 30, 40])
+# parameter-efficient fine-tuning
+parser.add_argument("--use_lora", type=bool, default=False)
+parser.add_argument("--use_slice_finetuning", type=bool, default=False)
+parser.add_argument("--slice_finetuning_percent", type=int, default=10, choices=[10, 20, 30, 40])
+
 parser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,supervised",
                     help="Coma-separater list of given wandb tags")
 
@@ -123,7 +126,15 @@ metrics = gadgets.metrics.MyMetrics(
 )
 
 # PART: partial model finetuning
-if not args.finetune_whole_model:
+if args.use_lora:
+    from gadgets.lora_utils import patch_linears_with_lora
+    import loralib
+
+    patch_linears_with_lora(model, r=args.lora_hidden_states_ratio)
+
+    model.train()
+    loralib.mark_only_lora_as_trainable(model)
+elif args.use_slice_finetuning:
     finetuning_schemes = {
         10: ("lm_head.weight",
              "SelfAttention.v.weight"),
@@ -161,6 +172,7 @@ if not args.finetune_whole_model:
     assert abs(trainable_percent - args.finetune_percent) < 3, \
         "Finetuning scheme is not correct. Maximum allowed difference is 3%."
 
+# PART: logging int
 wandb.init(
     project="gadgets",
     tags=[args.model_name] + args.wandb_tags.split(","),
@@ -168,6 +180,7 @@ wandb.init(
     dir=args.output_dir,
 )
 
+# PART: training configuration
 # Define training args
 # output_dir = args.repository_id if args.repository_id else args.model_id.split("/")[-1]
 training_args = Seq2SeqTrainingArguments(
