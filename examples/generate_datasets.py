@@ -1,80 +1,52 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import transformers
 from datasets import load_dataset
+from transformers import AutoModelForSeq2SeqLM
+
 import gadgets
 
+model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+tokenizer = transformers.T5Tokenizer.from_pretrained("google/flan-t5-small")
 
-class GadgetsInserter:
-    def __init__(self,
-                 add_result_sentence: bool = True,
-                 prompt_prefix: Optional[str] = None) -> None:
+gadgets.utils.add_new_token(
+    "<",
+    is_special=False,
+    tokenizer=tokenizer,
+    model=model,
+    init_with=["[", ">"],
+)
 
-        self.add_result_sentence = add_result_sentence
-        self.prompt_prefix = prompt_prefix
+text = "<gadget>2+2</gadget>"
+encoded = tokenizer(text, return_tensors="pt").input_ids
+decoded = tokenizer.batch_decode(encoded, skip_special_tokens=True, spaces_between_special_tokens=False)
+assert decoded[0] == text, decoded[0]
 
-    def __call__(self, example: gadgets.datatypes.Example | dict) -> dict[str, str]:
-        if isinstance(example, dict):
-            example = gadgets.datatypes.Example(**example)
-
-        soup_chain = gadgets.markup.to_model_markup(
-            example=example,
-            add_result_sentence=self.add_result_sentence,
-        )
-
-        if self.prompt_prefix is not None:
-            prompt = f"{self.prompt_prefix}{example.prompt}"
-        else:
-            prompt = example.prompt
-
-        return {"prompt": prompt, "chain": soup_chain}
+preprocess = gadgets.prep.Preprocessing(tokenizer=tokenizer)
 
 
-class Encoding:
-    """
-    This is here only for completeness, but encoding is not included in the published datasets.
-    """
-
-    def __init__(self, tokenizer: transformers.PreTrainedTokenizer) -> None:
-        self.tokenizer = tokenizer
-
-    def __call__(self, example: dict[str, str]) -> dict[str, list[int]]:
-        inputs = self.tokenizer(example["prompt"], truncation=True)
-        labels = self.tokenizer(text_target=str(example["chain"]), truncation=True)
-
-        return {
-            "input_ids": inputs.input_ids,
-            "attention_mask": inputs.attention_mask,
-            "labels": labels.input_ids,
-            "chain": str(example["chain"]),
-        }
-
-
-preprocess = GadgetsInserter()
-
-
-# PART: datasets curation
 def parse_and_preprocess_aqua(example: dict[str, str]):
     example_with_gadgets = gadgets.aqua.parse(example)
-    # input_sample = preprocess(example_with_gadgets)
-    return {"prompt": example_with_gadgets.prompt,
-            "chain": example_with_gadgets.chain,
-            "result": example_with_gadgets.result}
+    input_sample = preprocess(example_with_gadgets)
+    return input_sample
 
 
 def parse_and_preprocess_gsm(example: dict[str, str]):
-    example_with_gadgets = gadgets.gsm8k.parse(example)
-    # example = preprocess(example_with_gadgets)
-    return {"prompt": example_with_gadgets.prompt,
-            "chain": example_with_gadgets.chain,
-            "result": example_with_gadgets.result}
+    example = gadgets.gsm8k.parse(example)
+    example = preprocess(example)
+    return example
 
 
 aqua = load_dataset("aqua_rat").map(parse_and_preprocess_aqua)
+aqua = aqua.map(remove_columns=['input_ids', 'attention_mask', 'labels'])
+
 gsm8k = load_dataset("gsm8k", "main").map(parse_and_preprocess_gsm)
+gsm8k = gsm8k.map(remove_columns=['input_ids', 'attention_mask', 'labels'])
 
 print("AQUA: %s" % aqua)
 print("GSM8K: %s" % gsm8k)
-print()
+
+aqua.push_to_hub("MU-NLPC/Calc-aqua_rat")
+gsm8k.push_to_hub("MU-NLPC/Calc-gsm8k")
+
+print("Done.")
