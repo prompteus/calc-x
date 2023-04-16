@@ -18,6 +18,7 @@ import wandb
 """Parse the arguments."""
 parser = argparse.ArgumentParser()
 # add model id and dataset path argument
+parser.add_argument("--output_dir", type=str)
 parser.add_argument("--model_name", type=str, default="google/flan-t5-xxl", help="Model id to use for training.")
 
 parser.add_argument("--finetune_whole_model", type=bool, default=False)
