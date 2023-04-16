@@ -59,13 +59,17 @@ preprocess = GadgetsInserter()
 def parse_and_preprocess_aqua(example: dict[str, str]):
     example_with_gadgets = gadgets.aqua.parse(example)
     # input_sample = preprocess(example_with_gadgets)
-    return example_with_gadgets
+    return {"prompt": example_with_gadgets.prompt,
+            "chain": example_with_gadgets.chain,
+            "result": example_with_gadgets.result}
 
 
 def parse_and_preprocess_gsm(example: dict[str, str]):
     example_with_gadgets = gadgets.gsm8k.parse(example)
     # example = preprocess(example_with_gadgets)
-    return example_with_gadgets
+    return {"prompt": example_with_gadgets.prompt,
+            "chain": example_with_gadgets.chain,
+            "result": example_with_gadgets.result}
 
 
 aqua = load_dataset("aqua_rat").map(parse_and_preprocess_aqua)
