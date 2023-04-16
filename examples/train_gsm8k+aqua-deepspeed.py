@@ -23,6 +23,8 @@ parser.add_argument("--model_name", type=str, default="google/flan-t5-xxl", help
 
 # parameter-efficient fine-tuning
 parser.add_argument("--use_lora", type=bool, default=False)
+parser.add_argument("--lora_hidden_states_ratio", type=int, default=16)
+
 parser.add_argument("--use_slice_finetuning", type=bool, default=False)
 parser.add_argument("--slice_finetuning_percent", type=int, default=10, choices=[10, 20, 30, 40])
 
