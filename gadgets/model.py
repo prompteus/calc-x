@@ -200,7 +200,7 @@ class GadgetAssist(transformers.GenerationMixin):
             total_output_str,
             return_tensors="pt",
             add_special_tokens=True,
-        )
+        ).to(self.device)
 
         if return_as_str:
             if return_result:
