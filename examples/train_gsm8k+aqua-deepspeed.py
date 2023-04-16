@@ -202,17 +202,23 @@ training_args = Seq2SeqTrainingArguments(
     # logging & evaluation strategies
     logging_dir=f"{args.output_dir}/logs",
     logging_strategy="steps",
-    logging_steps=500,
-    evaluation_strategy="epoch",
-    save_strategy="epoch",
-    save_total_limit=2,
+    logging_steps=100,
+    evaluation_strategy="steps",
+    eval_accumulation_steps=16,
+    save_strategy="steps",
+    save_total_limit=1,
     load_best_model_at_end=True,
-    # push to hub parameters
+    # added custom parameters
+    do_train=True,
+    do_eval=True,
+    gradient_accumulation_steps=32,
+    warmup_steps=5000,
+    eval_steps=2000,
+    save_steps=2000,
     report_to="wandb",
     include_inputs_for_metrics=True,
     metric_for_best_model="aqua_correct_results",
     greater_is_better=True,
-
 )
 
 # Create Trainer instance
