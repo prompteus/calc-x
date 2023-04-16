@@ -33,7 +33,7 @@ parser.add_argument("--deepspeed_config_json", type=str, default=None, help="Pat
 parser.add_argument("--gradient_checkpointing", type=bool, default=True, help="Path to deepspeed config file.")
 parser.add_argument("--bf16", type=bool, default=True if torch.cuda.get_device_capability()[0] == 8 else False)
 
-args = parser.parse_args()
+args, _ = parser.parse_known_args()
 
 # set seed
 set_seed(42)
