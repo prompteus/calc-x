@@ -33,6 +33,7 @@ parser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,sup
 # add training hyperparameters for epochs, batch size, learning rate, and seed
 parser.add_argument("--epochs", type=int, default=3, help="Number of epochs to train for.")
 parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size to use for training.")
+parser.add_argument("--gradient_accumulation_steps", type=int, default=4, help="Gradient accumulation training steps.")
 parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Batch size to use for testing.")
 parser.add_argument("--generation_max_length", type=int, default=140, help="Maximum length to use for generation")
 parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate to use for training.")
@@ -211,7 +212,7 @@ training_args = Seq2SeqTrainingArguments(
     # added custom parameters
     do_train=True,
     do_eval=True,
-    gradient_accumulation_steps=32,
+    gradient_accumulation_steps=args.gradient_accumulation_steps,
     warmup_steps=5000,
     eval_steps=2000,
     save_steps=2000,
