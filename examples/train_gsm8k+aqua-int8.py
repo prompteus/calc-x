@@ -33,7 +33,7 @@ parser.add_argument("--wandb_tags", type=str, default="calculator,gsm8k,aqua,sup
 # original Deepspeed arguments
 # add training hyperparameters for epochs, batch size, learning rate, and seed
 parser.add_argument("--max_steps", type=int, default=50_000, help="Number of total update steps to train for.")
-parser.add_argument("--eval_and_save_steps", type=int, default=2000, help="Number of steps between evaluations.")
+parser.add_argument("--eval_and_save_steps", type=int, default=1000, help="Number of steps between evaluations.")
 parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size to use for training.")
 parser.add_argument("--gradient_accumulation_steps", type=int, default=4, help="Gradient accumulation training steps.")
 # parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Batch size to use for testing.")
@@ -100,11 +100,11 @@ def parse_and_preprocess_gsm(example: dict[str, str]):
 
 
 aqua = load_dataset("aqua_rat", split="train").map(parse_and_preprocess_aqua)
-aqua_val = load_dataset("aqua_rat", split="validation").map(parse_and_preprocess_aqua).select(range(100))
+aqua_val = load_dataset("aqua_rat", split="validation").map(parse_and_preprocess_aqua).select(range(50))
 
 gsm8k = load_dataset("gsm8k", "main").map(parse_and_preprocess_gsm)
 
-train_valid_ds = gsm8k["train"].train_test_split(test_size=100, seed=42)
+train_valid_ds = gsm8k["train"].train_test_split(test_size=50, seed=42)
 
 # upscaling GSM to the size of AQuA - we don't do that now
 # gsm_idx = list(range(len(train_valid_ds["train"])))
@@ -233,7 +233,7 @@ trainer = Seq2SeqTrainer(
     tokenizer=tokenizer,
     data_collator=data_collator,
     compute_metrics=metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=15)]
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)]
 )
 
 # Start training
