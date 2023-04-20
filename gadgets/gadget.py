@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import sympy
 
+
 class Gadget(abc.ABC):
 
     def __init__(self):
@@ -40,7 +41,7 @@ class Calculator(Gadget):
     @staticmethod
     def format_sympy_int(x: sympy.core.numbers.Integer) -> str:
         return f"{int(x):_}"
-    
+
     @staticmethod
     def format_sympy_number(x: sympy.Number) -> str:
         if isinstance(x, sympy.core.numbers.Integer):
@@ -49,7 +50,7 @@ class Calculator(Gadget):
             return Calculator.format_sympy_float(x)
         else:
             return f"{str(x)} = around {Calculator.format_sympy_float(x.evalf())}"
-    
+
     def __call__(self, input_str: str) -> str:
         try:
             expr = self.evaluate(input_str)
