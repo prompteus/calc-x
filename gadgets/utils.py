@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import os
+import pathlib
+
+import peft
 import torch
 import transformers
+
 
 def add_new_token(
     new_token: str | transformers.AddedToken,
@@ -41,3 +46,27 @@ def add_new_token(
             new_token_id = torch.tensor(new_token_id, dtype=torch.long, device=device)
             embedding: torch.Tensor = embeddings(new_token_id)
             embedding.copy_(init_weights)
+
+
+# Source: https://github.com/huggingface/peft/issues/96
+class SavePeftModelCallback(transformers.TrainerCallback):
+    def on_save(
+        self,
+        args: transformers.TrainingArguments,
+        state: transformers.TrainerState,
+        control: transformers.TrainerControl,
+        **kwargs,
+    ) -> transformers.TrainerControl:
+        
+        model = kwargs["model"]
+        if not isinstance(model, peft.PeftModel):
+            return control
+
+        checkpoint_folder = pathlib.Path(args.output_dir) / f"{transformers.trainer_utils.PREFIX_CHECKPOINT_DIR}-{state.global_step}"
+        model.save_pretrained(checkpoint_folder)
+
+        pytorch_model_path = checkpoint_folder / "pytorch_model.bin"
+        if pytorch_model_path.exists():
+            os.remove(pytorch_model_path)
+
+        return control
