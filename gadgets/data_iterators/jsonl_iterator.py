@@ -2,11 +2,9 @@ import json
 import pathlib
 from typing import Iterable
 
-from gadgets.data_iterators.iterator import DataIterator
-
 import gadgets.datatypes
 import gadgets.markup
-
+from gadgets.data_iterators.iterator import DataIterator
 
 
 class JsonlIterator:
@@ -29,7 +27,7 @@ class JsonlIterator:
 
 
 if __name__ == "__main__":
-    jli = JsonlIterator("sample_data/word_problems_petr.jsonl")
+    jli = JsonlIterator("data/word_problems_petr.jsonl")
     for tup in jli:
         print("------------")
         print(gadgets.markup.to_model_markup(example=tup))

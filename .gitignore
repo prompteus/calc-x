@@ -4,3 +4,5 @@
 *wandb/*
 *models/*
 *.pyc
+data/ape210k/
+data/math_qa/
