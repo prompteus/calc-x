@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from typing import Iterable, Dict
 import math
+from typing import Dict, Iterable
 
-import wandb
-import numpy as np
 import evaluate
+import numpy as np
 import transformers
 
+import gadgets.datatypes
 import gadgets.gadget
 import gadgets.markup
-import gadgets.datatypes
+import wandb
 
 
 def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> bool:
