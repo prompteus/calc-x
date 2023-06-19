@@ -83,7 +83,6 @@ class MyMetrics:
             correct_results: list[bool] = []
             num_gadget_calls_pred: list[int] = []
             num_gadget_calls_true: list[int] = []
-
             for pred, true in zip(preds_str, trues_str):
                 pred_chain, pred_result = gadgets.markup.from_model_markup(pred)
                 true_chain, true_result = gadgets.markup.from_model_markup(true)
@@ -130,4 +129,7 @@ class MyMetrics:
 
             logged_dict = {**new_log, **logged_dict}
 
+         
+        logged_dict["avg_correct_results"] = np.mean([logged_dict[f"{dataset_id}_correct_results"] for dataset_id in self.datasets_id_length.keys()])
+        
         return logged_dict

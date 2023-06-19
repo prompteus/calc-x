@@ -129,11 +129,11 @@ dset_lengths = [len(dset['train']) for dset in preprocessed_datasets.values()]
 assert(all(x==dset_lengths[0] for x in dset_lengths))
 
 #Add validation portion to gsm8k
-# Select the last 100 samples for validation
+# Select the first 100 samples for validation
 valid_size = 100
 val_data = preprocessed_datasets['Calc-gsm8k']['test'].select(list(range(valid_size)))
 preprocessed_datasets['Calc-gsm8k']['validation'] = val_data#.to_dict()
-# Remove the last 100 samples from the test set
+# Remove the first 100 samples from the test set
 preprocessed_datasets['Calc-gsm8k']['test'] = preprocessed_datasets['Calc-gsm8k']['test'].select(list(range(valid_size, len(preprocessed_datasets['Calc-gsm8k']['test']))))
 
 # Only using 100 samples for validation from each dataset to speed things up
@@ -174,24 +174,20 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=1_000_000,
-    per_device_train_batch_size=32,
-    # per_device_train_batch_size=8,
-    
-    # gradient_accumulation_steps=4,
-    gradient_accumulation_steps=1,
-    
+    per_device_train_batch_size=8,
+    gradient_accumulation_steps=4,
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=50,
-    eval_steps=1,
-    save_steps=4000,
+    logging_steps=8000, #4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    eval_steps=8000,
+    save_steps=8000,
     evaluation_strategy="steps",
     bf16=True,
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
     report_to="wandb",
-    metric_for_best_model="correct_results",
+    metric_for_best_model="avg_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
     save_total_limit=15,
@@ -205,7 +201,7 @@ trainer = transformers.Seq2SeqTrainer(
     tokenizer=tokenizer,
     data_collator=data_collator,
     compute_metrics=metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=15)]
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)]
 )
 trainer.train()
 trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")
