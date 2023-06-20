@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import random
-import re
 
 import torch
 import numpy as np
@@ -11,8 +10,10 @@ import transformers
 import datasets
 from datasets import concatenate_datasets, Dataset
 from transformers import EarlyStoppingCallback
+import re 
 
 import gadgets
+from gadgets.baseline_metrics import MyBaselineMetrics
 
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
@@ -33,10 +34,11 @@ wandb.init(
     dir=log_path,
 )
 
-
 tokenizer = transformers.T5Tokenizer.from_pretrained(model_name)
 model = transformers.T5ForConditionalGeneration.from_pretrained(model_name)
 data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model=model)
+
+
 
 def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
     def preprocess_fn(sample):
@@ -47,10 +49,11 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
             "answer":sample[answer_key],
             "input_ids": inputs.input_ids,
             "attention_mask": inputs.attention_mask,
-            "labels": labels.input_ids,
+            "labels_old": labels.input_ids,
             "chain": sample[chain_key],
         }
     return preprocess_fn
+
 
 dataset_to_keys = {
         'Calc-ape210k':{
@@ -83,12 +86,12 @@ for dset_name, keys in dataset_to_keys.items():
     dset = datasets.load_dataset(f'MU-NLPC/{dset_name}').map(preprocessing_fn)
     preprocessed_datasets[dset_name] = dset
     
+    
 #Fixing validation error on too-long trimmed chain + filtering the same problem on training data, removes small amount of samples
 longest_allowed_chain = 800
 for dset_name, dset in preprocessed_datasets.items():
     for split, subdset in dset.items():
         preprocessed_datasets[dset_name][split] = subdset.filter(lambda row: len(row['chain'])<longest_allowed_chain)
-
         
 ########### PREPARING LABELS THAT DO NOT USE MARKUP SYNTAX ########
 def gsm8k_prep(sample):
@@ -97,13 +100,13 @@ def gsm8k_prep(sample):
     label = '\n'.join(split[:-1])
     result_numbers = re.findall('\d+', split[-1])
     assert len(result_numbers) == 1
-    label += f'\nThe final result is {result_numbers[0]}.'
+    label += f'\n. The final result is {result_numbers[0]}.'
     return label
 
 def ape210k_prep(sample):
     result_numbers = re.findall('<result>(.*?)</result>', sample['chain'])
     assert len(result_numbers) == 1
-    label = sample['answer']+f'\nThe final result is {result_numbers[0]}.'
+    label = sample['answer']+f'\n. The final result is {result_numbers[0]}.'
     return label
 
 def math_qa_prep(sample):
@@ -129,7 +132,10 @@ def math_qa_prep(sample):
     matches = re.findall(pattern, answer)
     
     if(len(matches) == 1):
-        return answer.replace(matches[0], f"The final result is {sample['options'][matches[0][-1]].rstrip()}.")
+        new = f". The final result is {sample['options'][matches[0][-1]].rstrip()}."
+        return new.join(answer.rsplit(matches[0], 1))
+        
+        # return answer.replace(matches[0], f". The final result is {sample['options'][matches[0][-1]].rstrip()}.")
         
     patterns = [
         '(?:correct answer is ([a-z]).*$)',
@@ -160,7 +166,11 @@ def math_qa_prep(sample):
     for pattern in patterns:
         matches = re.search(pattern, answer)
         if(matches):
-            return answer.replace(matches[0], f"The final result is {sample['options'][matches.group(1)]}.")
+            new = f". The final result is {sample['options'][matches.group(1)]}."
+            #Replace only last occurence of match
+            return new.join(answer.rsplit(matches[0], 1))
+        
+            # return answer.replace(matches[0], f". The final result is {sample['options'][matches.group(1)]}.")
         
     patterns = [
         '(?:^([a-z]) \$)', 
@@ -172,7 +182,8 @@ def math_qa_prep(sample):
         matches = re.search(pattern, answer)
         if(matches):
             answer = answer.replace(matches[0],"")
-            answer = answer+f" The final result is {sample['options'][matches.group(1)]}."
+            answer = answer+f". The final result is {sample['options'][matches.group(1)]}."
+            
             return answer
     patterns = [
         '(?:correct option : (\d+))', 
@@ -182,11 +193,13 @@ def math_qa_prep(sample):
     for pattern in patterns:
         matches = re.search(pattern, answer)
         if(matches):
-            return answer.replace(matches[0], f"The final result is {matches.group(1)}.")
+            new = f". The final result is {matches.group(1)}."
+            return new.join(answer.rsplit(matches[0], 1))
+            
+            # return answer.replace(matches[0], f". The final result is {matches.group(1)}.")
     
     raise Exception() 
     
-
 def aqua_rat_prep(sample):
     res = re.sub('<<[^>]*>>','', sample['answer'])
     split = res.split('\n')
@@ -204,7 +217,7 @@ def aqua_rat_prep(sample):
         if result_letters[0] in option:
             matches.append(option)
     assert len(matches) == 1, matches
-    label += f'\nThe final result is {matches[0][2:]}.'
+    label += f'\n. The final result is {matches[0][2:]}.'
     return label
 
 
@@ -233,7 +246,7 @@ def labeling_factory(tokenizer, labeler_fn, question_key):
             
     return preprocess_fn
             
-        
+                  
 dataset_to_labeler = {
     'Calc-ape210k':ape210k_prep,
     'Calc-gsm8k':gsm8k_prep,
@@ -254,8 +267,9 @@ for dset_name, dset in preprocessed_datasets_labeled.items():
         new_dset_size = len(subdset)
         diff = original_dset_size-new_dset_size
         print(f'{dset_name}, {dset_split}, threw away {diff} samples ({100*(diff/original_dset_size):.2f}%)')
-        
-preprocessed_datasets = preprocessed_datasets_labeled
+
+preprocessed_datasets = preprocessed_datasets_labeled        
+
 #Upsample datasets to the length of the largest dataset
 dset_to_length = {dset_name:len(dset['train']) for dset_name, dset in preprocessed_datasets.items()}
 largest_dset_length = max(dset_to_length.values())
@@ -281,6 +295,7 @@ preprocessed_datasets['Calc-gsm8k']['validation'] = val_data#.to_dict()
 # Remove the last 100 samples from the test set
 preprocessed_datasets['Calc-gsm8k']['test'] = preprocessed_datasets['Calc-gsm8k']['test'].select(list(range(valid_size, len(preprocessed_datasets['Calc-gsm8k']['test']))))
 
+
 # Only using 100 samples for validation from each dataset to speed things up
 for dset_name, dset in preprocessed_datasets.items():
     preprocessed_datasets[dset_name]['validation'] = dset['validation'].select(range(valid_size))
@@ -303,7 +318,7 @@ log_predictions_indices = np.array(range(valid_size))
 log_predictions_indices
 
 # PART: custom evaluations' logging
-metrics = gadgets.metrics.MyMetrics(
+metrics = MyBaselineMetrics(
     tokenizer=tokenizer,
     log_predictions=True,
     log_predictions_indices=log_predictions_indices,
