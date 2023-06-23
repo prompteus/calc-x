@@ -22,6 +22,7 @@ argparser.add_argument("--output_jsonl", type=pathlib.Path, required=True)
 argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--num_beams", type=int, default=1)
 argparser.add_argument("--max_length", type=int, default=512)
+argparser.add_argument("--first_n", type=int, default=-1)
 args = argparser.parse_args()
 
 
@@ -65,14 +66,7 @@ dataset_name = args.dataset.split("/")[-1]
 question_key = dataset_to_keys[dataset_name]["question_key"]
 answer_key = dataset_to_keys[dataset_name]["answer_key"]
 
-if not args.use_gadgets:
-    keys = dataset_to_keys[dataset_name]
-    preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
-    labeler_fn = labeling_factory(tokenizer, dataset_to_labeler[dataset_name], question_key)
-    dataset = dataset.map(preprocessing_fn)
-    dataset = dataset.map(labeler_fn)
-    dataset = dataset.filter(lambda example: example["labels"] is not None)
-else:
+if args.use_gadgets:
     dataset = dataset.map(
         lambda example: {
             "input_ids": tokenizer(example[question_key]).input_ids,
@@ -81,6 +75,16 @@ else:
         },
         remove_columns=[question_key, answer_key],
     )
+else:
+    keys = dataset_to_keys[dataset_name]
+    preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
+    labeler_fn = labeling_factory(tokenizer, dataset_to_labeler[dataset_name], question_key)
+    dataset = dataset.map(preprocessing_fn)
+    dataset = dataset.map(labeler_fn)
+    dataset = dataset.filter(lambda example: example["labels"] is not None)
+
+if args.first_n > 0:
+    dataset = dataset.select(range(min(args.first_n, len(dataset))))
 
 with (
     torch.autocast(device_type="cuda", dtype=torch.bfloat16),
