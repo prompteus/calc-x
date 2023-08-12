@@ -202,13 +202,13 @@ test = ["astroid", "pytest"]
 
 [[package]]
 name = "async-timeout"
-version = "4.0.2"
+version = "4.0.3"
 description = "Timeout context manager for asyncio programs"
 optional = false
-python-versions = ">=3.6"
+python-versions = ">=3.7"
 files = [
-    {file = "async-timeout-4.0.2.tar.gz", hash = "sha256:2163e1640ddb52b7a8c80d0a67a08587e5d245cc9c553a74a847056bc2976b15"},
-    {file = "async_timeout-4.0.2-py3-none-any.whl", hash = "sha256:8ca1e4fcf50d07413d66d1a5e416e42cfdf5851c981d679a09851a6853383b3c"},
+    {file = "async-timeout-4.0.3.tar.gz", hash = "sha256:4640d96be84d82d02ed59ea2b7105a0f7b33abe8703703cd0ab0bf87c427522f"},
+    {file = "async_timeout-4.0.3-py3-none-any.whl", hash = "sha256:7405140ff1230c310e51dc27b3145b9092d659ce68ff733fb0cefe3ee42be028"},
 ]
 
 [[package]]
@@ -640,12 +640,12 @@ files = [
 
 [[package]]
 name = "deepspeed"
-version = "0.9.5"
+version = "0.10.0"
 description = "DeepSpeed library"
 optional = false
 python-versions = "*"
 files = [
-    {file = "deepspeed-0.9.5.tar.gz", hash = "sha256:a3743db45066afb67fde562e586e92ee5afd8f5ab4c390e6f796f5ec1b112290"},
+    {file = "deepspeed-0.10.0.tar.gz", hash = "sha256:afb06a97fde2a33d0cbd60a8357a70087c037b9f647ca48377728330c35eff3e"},
 ]
 
 [package.dependencies]
@@ -661,15 +661,16 @@ tqdm = "*"
 
 [package.extras]
 1bit-mpi = ["mpi4py"]
-all = ["autodoc_pydantic (<2.0.0)", "clang-format (==16.0.2)", "diffusers", "docutils (<0.18)", "future", "google", "hjson", "importlib-metadata (>=4)", "lm-eval (==0.3.0)", "mpi4py", "neural-compressor (==2.1.0)", "packaging", "pre-commit (>=2.20.0)", "protobuf", "psutil", "py-cpuinfo", "pydantic (<2.0.0)", "pytest", "pytest-forked", "pytest-randomly", "pytest-xdist", "recommonmark", "sphinx", "sphinx-rtd-theme", "tabulate", "tensorboard", "torch", "torchvision", "tqdm", "transformers", "transformers[sentencepiece]", "triton (==1.0.0)", "triton (==2.0.0.dev20221202)", "wandb", "xgboost"]
+all = ["autodoc_pydantic (<2.0.0)", "clang-format (==16.0.2)", "coverage", "diffusers", "docutils (<0.18)", "future", "google", "hjson", "importlib-metadata (>=4)", "lm-eval (==0.3.0)", "mpi4py", "neural-compressor (==2.1.0)", "packaging", "pre-commit (>=2.20.0)", "protobuf", "psutil", "py-cpuinfo", "pydantic (<2.0.0)", "pytest", "pytest-forked", "pytest-randomly", "pytest-xdist", "recommonmark", "sphinx", "sphinx-rtd-theme", "tabulate", "tensorboard", "torch", "torchvision", "tqdm", "transformers", "transformers[sentencepiece]", "triton", "triton (==1.0.0)", "triton (==2.0.0.dev20221202)", "wandb", "xgboost"]
 autotuning = ["tabulate"]
 autotuning-ml = ["hjson", "tabulate", "xgboost"]
-dev = ["clang-format (==16.0.2)", "docutils (<0.18)", "future", "importlib-metadata (>=4)", "pre-commit (>=2.20.0)", "pytest", "pytest-forked", "pytest-randomly", "pytest-xdist", "recommonmark", "sphinx", "sphinx-rtd-theme", "tensorboard", "torchvision", "transformers", "wandb"]
-inf = ["google", "lm-eval (==0.3.0)", "protobuf", "transformers", "transformers[sentencepiece]"]
+dev = ["clang-format (==16.0.2)", "coverage", "docutils (<0.18)", "future", "importlib-metadata (>=4)", "pre-commit (>=2.20.0)", "pytest", "pytest-forked", "pytest-randomly", "pytest-xdist", "recommonmark", "sphinx", "sphinx-rtd-theme", "tensorboard", "torchvision", "transformers", "triton", "wandb"]
+inf = ["google", "lm-eval (==0.3.0)", "protobuf", "transformers", "transformers[sentencepiece]", "triton"]
 readthedocs = ["autodoc_pydantic (<2.0.0)", "docutils (<0.18)", "hjson", "packaging", "psutil", "py-cpuinfo", "pydantic (<2.0.0)", "torch", "tqdm"]
 sd = ["diffusers", "triton (==2.0.0.dev20221202)"]
 sparse = ["neural-compressor (==2.1.0)"]
 sparse-attn = ["triton (==1.0.0)"]
+triton = ["triton"]
 
 [[package]]
 name = "dill"
@@ -2120,13 +2121,13 @@ files = [
 
 [[package]]
 name = "peft"
-version = "0.3.0"
+version = "0.4.0"
 description = "Parameter-Efficient Fine-Tuning (PEFT)"
 optional = false
-python-versions = ">=3.7.0"
+python-versions = ">=3.8.0"
 files = [
-    {file = "peft-0.3.0-py3-none-any.whl", hash = "sha256:824c2ba148febb743c70363e597dafb35d996e075956ad7bc36506f09fea0349"},
-    {file = "peft-0.3.0.tar.gz", hash = "sha256:bbdeee4de3653ee43cb6bbe7505816e6e9b4cf8275471be1707d9c253dfe8e0b"},
+    {file = "peft-0.4.0-py3-none-any.whl", hash = "sha256:2cf992772a6d703814477e0bdcdadd68cb8ea388111ce2d793dd2ff0e438f357"},
+    {file = "peft-0.4.0.tar.gz", hash = "sha256:e768fa22d6e9f32aa7e891f0d06f355960278ca4dc0cdd96bff71f6f06269207"},
 ]
 
 [package.dependencies]
@@ -2135,14 +2136,15 @@ numpy = ">=1.17"
 packaging = ">=20.0"
 psutil = "*"
 pyyaml = "*"
+safetensors = "*"
 torch = ">=1.13.0"
 transformers = "*"
 
 [package.extras]
-dev = ["black (>=22.0,<23.0)", "hf-doc-builder", "ruff (>=0.0.241)"]
+dev = ["black (>=22.0,<23.0)", "hf-doc-builder", "ruff (>=0.0.241)", "urllib3 (<=2.0.0)"]
 docs-specific = ["hf-doc-builder"]
-quality = ["black (>=22.0,<23.0)", "ruff (>=0.0.241)"]
-test = ["black (>=22.0,<23.0)", "datasets", "hf-doc-builder", "parameterized", "pytest", "pytest-xdist", "ruff (>=0.0.241)"]
+quality = ["black (>=22.0,<23.0)", "ruff (>=0.0.241)", "urllib3 (<=2.0.0)"]
+test = ["black (>=22.0,<23.0)", "datasets", "diffusers", "hf-doc-builder", "parameterized", "pytest", "pytest-cov", "pytest-xdist", "ruff (>=0.0.241)", "urllib3 (<=2.0.0)"]
 
 [[package]]
 name = "pexpect"
@@ -2186,13 +2188,13 @@ test = ["appdirs (==1.4.4)", "covdefaults (>=2.3)", "pytest (>=7.4)", "pytest-co
 
 [[package]]
 name = "plotly"
-version = "5.15.0"
+version = "5.16.0"
 description = "An open-source, interactive data visualization library for Python"
 optional = false
 python-versions = ">=3.6"
 files = [
-    {file = "plotly-5.15.0-py2.py3-none-any.whl", hash = "sha256:3508876bbd6aefb8a692c21a7128ca87ce42498dd041efa5c933ee44b55aab24"},
-    {file = "plotly-5.15.0.tar.gz", hash = "sha256:822eabe53997d5ebf23c77e1d1fcbf3bb6aa745eb05d532afd4b6f9a2e2ab02f"},
+    {file = "plotly-5.16.0-py2.py3-none-any.whl", hash = "sha256:046ba0cd9f6b251780e0d93313016ec5e2cb69d9a68da818cd7110e6c77a4011"},
+    {file = "plotly-5.16.0.tar.gz", hash = "sha256:13dc052665dcb4d9eefd89847c0b144984e99aca5c8008f9885d2583b77d8b7d"},
 ]
 
 [package.dependencies]
@@ -3615,22 +3617,22 @@ opt-einsum = ["opt-einsum (>=3.3)"]
 
 [[package]]
 name = "tornado"
-version = "6.3.2"
+version = "6.3.3"
 description = "Tornado is a Python web framework and asynchronous networking library, originally developed at FriendFeed."
 optional = false
 python-versions = ">= 3.8"
 files = [
-    {file = "tornado-6.3.2-cp38-abi3-macosx_10_9_universal2.whl", hash = "sha256:c367ab6c0393d71171123ca5515c61ff62fe09024fa6bf299cd1339dc9456829"},
-    {file = "tornado-6.3.2-cp38-abi3-macosx_10_9_x86_64.whl", hash = "sha256:b46a6ab20f5c7c1cb949c72c1994a4585d2eaa0be4853f50a03b5031e964fc7c"},
-    {file = "tornado-6.3.2-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c2de14066c4a38b4ecbbcd55c5cc4b5340eb04f1c5e81da7451ef555859c833f"},
-    {file = "tornado-6.3.2-cp38-abi3-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:05615096845cf50a895026f749195bf0b10b8909f9be672f50b0fe69cba368e4"},
-    {file = "tornado-6.3.2-cp38-abi3-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5b17b1cf5f8354efa3d37c6e28fdfd9c1c1e5122f2cb56dac121ac61baa47cbe"},
-    {file = "tornado-6.3.2-cp38-abi3-musllinux_1_1_aarch64.whl", hash = "sha256:29e71c847a35f6e10ca3b5c2990a52ce38b233019d8e858b755ea6ce4dcdd19d"},
-    {file = "tornado-6.3.2-cp38-abi3-musllinux_1_1_i686.whl", hash = "sha256:834ae7540ad3a83199a8da8f9f2d383e3c3d5130a328889e4cc991acc81e87a0"},
-    {file = "tornado-6.3.2-cp38-abi3-musllinux_1_1_x86_64.whl", hash = "sha256:6a0848f1aea0d196a7c4f6772197cbe2abc4266f836b0aac76947872cd29b411"},
-    {file = "tornado-6.3.2-cp38-abi3-win32.whl", hash = "sha256:7efcbcc30b7c654eb6a8c9c9da787a851c18f8ccd4a5a3a95b05c7accfa068d2"},
-    {file = "tornado-6.3.2-cp38-abi3-win_amd64.whl", hash = "sha256:0c325e66c8123c606eea33084976c832aa4e766b7dff8aedd7587ea44a604cdf"},
-    {file = "tornado-6.3.2.tar.gz", hash = "sha256:4b927c4f19b71e627b13f3db2324e4ae660527143f9e1f2e2fb404f3a187e2ba"},
+    {file = "tornado-6.3.3-cp38-abi3-macosx_10_9_universal2.whl", hash = "sha256:502fba735c84450974fec147340016ad928d29f1e91f49be168c0a4c18181e1d"},
+    {file = "tornado-6.3.3-cp38-abi3-macosx_10_9_x86_64.whl", hash = "sha256:805d507b1f588320c26f7f097108eb4023bbaa984d63176d1652e184ba24270a"},
+    {file = "tornado-6.3.3-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1bd19ca6c16882e4d37368e0152f99c099bad93e0950ce55e71daed74045908f"},
+    {file = "tornado-6.3.3-cp38-abi3-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:7ac51f42808cca9b3613f51ffe2a965c8525cb1b00b7b2d56828b8045354f76a"},
+    {file = "tornado-6.3.3-cp38-abi3-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:71a8db65160a3c55d61839b7302a9a400074c9c753040455494e2af74e2501f2"},
+    {file = "tornado-6.3.3-cp38-abi3-musllinux_1_1_aarch64.whl", hash = "sha256:ceb917a50cd35882b57600709dd5421a418c29ddc852da8bcdab1f0db33406b0"},
+    {file = "tornado-6.3.3-cp38-abi3-musllinux_1_1_i686.whl", hash = "sha256:7d01abc57ea0dbb51ddfed477dfe22719d376119844e33c661d873bf9c0e4a16"},
+    {file = "tornado-6.3.3-cp38-abi3-musllinux_1_1_x86_64.whl", hash = "sha256:9dc4444c0defcd3929d5c1eb5706cbe1b116e762ff3e0deca8b715d14bf6ec17"},
+    {file = "tornado-6.3.3-cp38-abi3-win32.whl", hash = "sha256:65ceca9500383fbdf33a98c0087cb975b2ef3bfb874cb35b8de8740cf7f41bd3"},
+    {file = "tornado-6.3.3-cp38-abi3-win_amd64.whl", hash = "sha256:22d3c2fa10b5793da13c807e6fc38ff49a4f6e1e3868b0a6f4164768bb8e20f5"},
+    {file = "tornado-6.3.3.tar.gz", hash = "sha256:e7d8db41c0181c80d76c982aacc442c0783a2c54d6400fe028954201a2e032fe"},
 ]
 
 [[package]]
@@ -4124,4 +4126,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.13"
-content-hash = "138ef59c6f67c3c96b9612c69064187d0b5482f70e3830f3f2d2bc9e89a56b33"
+content-hash = "3c25f57aa4470c4a0cd977500739ca5fa6aedbb5c0f7612925d223c329dc4ca6"
