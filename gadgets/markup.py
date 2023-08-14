@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import bs4
 
-
-from gadgets.datatypes import Interaction, Chain, Example, Step
+from gadgets.datatypes import Chain, Example, Interaction, Step
 
 GADGET_TAG = "gadget"
 OUTPUT_TAG = "output"
@@ -12,8 +11,8 @@ RESULT_TAG = "result"
 
 def step_to_markup(step: Step) -> bs4.BeautifulSoup:
     if isinstance(step, str):
-        return bs4.BeautifulSoup(step + "\n", features="html.parser")
-    
+        return bs4.BeautifulSoup(step, features="html.parser")
+
     interaction: Interaction = step
 
     soup = bs4.BeautifulSoup(features="html.parser")
@@ -25,6 +24,7 @@ def step_to_markup(step: Step) -> bs4.BeautifulSoup:
     output_tag = bs4.Tag(name=OUTPUT_TAG)
     output_tag.string = interaction.outputs
 
+    soup.append("\n")
     soup.append(tag)
     soup.append("\n")
     soup.append(output_tag)
@@ -45,9 +45,9 @@ def to_model_markup(
     chain: Chain | None = None,
     result: str | None = None,
     example: Example | None = None,
+    ommit_tags: bool = False,
     add_result_sentence: bool = False,
 ) -> bs4.BeautifulSoup:
-
     if example is None and chain is None:
         raise ValueError("Either example or chain must be provided")
 
@@ -60,23 +60,30 @@ def to_model_markup(
     if example is not None:
         chain = example.chain
         result = example.result
-    
+
     soup = bs4.BeautifulSoup("", features="html.parser")
 
     for step in chain:
         if isinstance(step, tuple):
             gadget_id, inputs, outputs = step
             step = Interaction(gadget_id=gadget_id, inputs=inputs, outputs=outputs)
+        if ommit_tags and isinstance(step, Interaction):
+            continue
         soup.append(step_to_markup(step))
+
+    if result is None:
+        return soup
 
     if add_result_sentence:
         str_soup = str(soup)
         result_sentence = "Final result is "
-        if len(str_soup.strip()) > 0 and not str_soup.strip().endswith("."):
-            result_sentence = ". " + result_sentence
+        # if len(str_soup.strip()) > 0 and not str_soup.strip().endswith("."):
+        #    result_sentence = ". " + result_sentence
         soup.append(result_sentence)
+        soup.append(result + ".\n")
 
-    soup.append(result_to_markup(result))
+    if not ommit_tags:
+        soup.append(result_to_markup(result))
 
     return soup
 
@@ -108,7 +115,7 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
                 inputs = ""
             else:
                 inputs = item.string.strip()
-            try: 
+            try:
                 next_el: bs4.Tag = item.next_sibling
                 if next_el.name == OUTPUT_TAG:
                     if next_el.string is None:
@@ -130,4 +137,3 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
                 result = item.string.strip()
 
     return chain, result
-

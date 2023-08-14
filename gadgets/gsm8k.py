@@ -4,8 +4,8 @@ import math
 import re
 from typing import Dict
 
-import gadgets.gadget
 import gadgets.datatypes
+import gadgets.gadget
 
 
 def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
@@ -13,7 +13,7 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
     >>> import datasets
     >>> dataset = datasets.load_dataset("gsm8k", "main")
     >>> _ = parse(dataset["train"][0])
-    
+
     >>> question = "I have 2 apples, Sam gives me 2 more, how many apples do I have?"
     >>> answer = "Let me think... 2 and 2 = <<2+2=4>> 4. I have 4 apples now. #### 4"
     >>> sample = parse({"question": question, "answer": answer})
@@ -29,10 +29,15 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
     assert "answer" in sample, "answer is missing"
     assert "question" in sample, "question is missing"
 
+    sample["question"] = replace_unicode(sample["question"])
+    sample["answer"] = replace_unicode(sample["answer"])
+
     calc = gadgets.gadget.Calculator()
 
     result: str = sample["answer"]
     chain_str, result = result.split("####")
+
+    chain_str = add_missing_dots(chain_str)
     result = result.strip()
     calc_re = re.compile(r"<<(.*?)=(.*?)>>", flags=re.MULTILINE)
 
@@ -68,3 +73,52 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
         chain=chain,
         result=result,
     )
+
+
+def add_missing_dots(input_string: str):
+    lines = input_string.split("\n")
+    result = []
+
+    for line, next_line in zip(lines, lines[1:] + [""]):
+        if line != "" and line[-1].strip().isalnum() and (next_line == "" or next_line[0].isupper()):
+            line += "."
+        result.append(line)
+
+    return "\n".join(result)
+
+
+def replace_unicode(string: str) -> str:
+    replacements = {
+        "’": "'",
+        "–": "-",
+        "×": "*",
+        "÷": "/",
+        "−": "-",
+        "≠": "!=",
+        "”": '"',
+        "“": '"',
+        "—": "-",
+        "‘": "'",
+        "√": "sqrt",
+        "⁰": "^0",
+        "¹": "^1",
+        "²": "^2",
+        "³": "^3",
+        "⁴": "^4",
+        "⁵": "^5",
+        "⁶": "^6",
+        "⁷": "^7",
+        "⁸": "^8",
+        "⁹": "^9",
+        "¼": "1/4",
+        "½": "1/2",
+        "¾": "3/4",
+        "\u2028": "\n",
+        "\u2029": "\n",
+        "\xa0": " ",
+        "\u200b": "",
+        "А": "A",
+    }
+    for key, value in replacements.items():
+        string = string.replace(key, value)
+    return string
