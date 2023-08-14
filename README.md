@@ -7,6 +7,29 @@ Tool-assisted Language Models.
 The training scripts including dataset curation can be found
 in `examples` (in progress).
 
+
+## Create environment
+
+First, clone the repo. Then run:
+
+```shell
+conda create -n gadgets python=3.10 && conda activate gadgets
+pip install poetry
+poetry install 
+```
+
+This installs all dependencies in exact same versions used by authors of the repo.
+In case you encounter any issues on your hardware (e.g. with CUDA version, platform, etc.),
+you can resolve the dependencies yourself:
+
+```shell
+# with plain pip:
+pip install -e .[dev]
+# OR with poetry:
+poetry lock && poetry install
+```
+
+
 ## Usage
 
 We wrap the `generate()` method to be able to utilize the 
