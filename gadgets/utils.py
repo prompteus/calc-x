@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import pathlib
 
-import peft
 import torch
 import transformers
 
@@ -57,7 +56,8 @@ class SavePeftModelCallback(transformers.TrainerCallback):
         control: transformers.TrainerControl,
         **kwargs,
     ) -> transformers.TrainerControl:
-        
+        import peft
+
         model = kwargs["model"]
         if not isinstance(model, peft.PeftModel):
             return control

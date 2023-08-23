@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import warnings
+from copy import deepcopy
+
 import torch
 import transformers
 import bs4
@@ -217,11 +219,62 @@ class GadgetAssist(transformers.GenerationMixin):
         return output_tensor
 
 
-def gadget_assisted_model(model_class: type[transformers.PreTrainedModel]):
+class StepwiseGenerator(GadgetAssist):
+
+    @torch.no_grad()
+    def generate(self,
+                 input_ids: Optional[torch.Tensor] = None,
+                 generation_config: Optional[GenerationConfig] = None,
+                 logits_processor: Optional[LogitsProcessorList] = None,
+                 stopping_criteria: Optional[StoppingCriteriaList] = None,
+                 prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+                 synced_gpus: Optional[bool] = None,
+                 streamer: Optional["BaseStreamer"] = None,
+                 **kwargs) -> torch.LongTensor:
+        # PerSentence generators decode outputs per reasoning step (~per sentence).
+        # After each reasoning step, encode newly-generated output and generate the following step.
+        # Once the model generates the <result> tag, terminate.
+        output_step = ""
+
+        extended_input_ids = input_ids.clone()
+
+        # the length of suffix and prefix special tokens differ among models, we assume a single (trailing) <s> token
+        assert len(self.tokenizer(output_step).input_ids) == 1
+
+        # generated output does not contain the result -> encode intermediate output and continue in generation
+        while bs4.BeautifulSoup(output_step, features="html.parser").find(RESULT_TAG) is None:
+            prev_step_ids = self.tokenizer(output_step, return_tensors="pt").input_ids.to(self.device)
+
+            # remove trailing special tokens -- we assume a single trailing token here (asserted above)
+            extended_input_ids = torch.hstack([extended_input_ids[:, :-1], prev_step_ids])
+
+            output_ids = super().generate(extended_input_ids, generation_config, logits_processor, stopping_criteria,
+                                          prefix_allowed_tokens_fn, synced_gpus, streamer, **kwargs)
+
+            output_step = self.tokenizer.batch_decode(output_ids,
+                                                      skip_special_tokens=True,
+                                                      spaces_between_special_tokens=False)[0]  # assumes no batching
+            print("Output step: %s" % output_step)
+
+        # collect complete generation output and remove the input segment
+        generated_output_ids = torch.hstack([extended_input_ids[:, :-1], output_ids])
+        generated_output_ids = generated_output_ids[:, input_ids.shape[0]+1:]  # we assume batch_size==1 here
+
+        return generated_output_ids
+
+
+def gadget_assisted_model(model_class: transformers.PreTrainedModel):
     class GadgetAssistedModel(GadgetAssist, model_class):
         pass
 
     return GadgetAssistedModel
+
+
+def stepwise_gadget_model(model_class: transformers.PreTrainedModel):
+    class StepwiseGeneratorModel(StepwiseGenerator, model_class):
+        pass
+
+    return StepwiseGeneratorModel
 
 
 str_prompt = "Write xml tag gadget id attribute id='calculator' and fill '2 + 2' inside. "
