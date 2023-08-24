@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import warnings
 from copy import deepcopy
 
@@ -13,6 +14,9 @@ from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteria
 
 from gadgets.gadget import Gadget, Calculator
 from gadgets.markup import GADGET_TAG, OUTPUT_TAG, RESULT_TAG
+
+
+logger = logging.getLogger()
 
 
 class StopAfterGadgetCall(transformers.generation.StoppingCriteria):
@@ -87,9 +91,7 @@ class GadgetAssist(transformers.GenerationMixin):
             input_ids = self.tokenizer(input_ids, return_tensors="pt").input_ids
         input_ids = input_ids.to(self.device)
 
-        running_gadgets: dict[str, Gadget] = {
-            g.gadget_id(): g for g in self.enabled_gadgets
-        }
+        running_gadgets: dict[str, Gadget] = {g.gadget_id(): g for g in self.enabled_gadgets}
 
         max_tokens = None
         min_tokens = None
@@ -115,11 +117,9 @@ class GadgetAssist(transformers.GenerationMixin):
         result_str = None
 
         while True:
-            total_output_encoded = self.tokenizer(
-                text_target=total_output_str,
-                add_special_tokens=False,
-                return_tensors="pt"
-            ).input_ids.to(self.device).to(torch.long)
+            total_output_encoded = self.tokenizer(text_target=total_output_str,
+                                                  add_special_tokens=False,
+                                                  return_tensors="pt").input_ids.to(self.device).to(torch.long)
 
             num_total_tokens = total_output_encoded.shape[-1]
             if last_num_total_tokens is not None and num_total_tokens <= last_num_total_tokens:
@@ -135,15 +135,12 @@ class GadgetAssist(transformers.GenerationMixin):
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
             decoder_input_ids = torch.cat([
-                torch.tensor(
-                    self.config.decoder_start_token_id,
-                    dtype=torch.long
-                ).to(self.device).reshape(1, 1),
+                torch.tensor(self.config.decoder_start_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
                 total_output_encoded
             ], dim=-1)
 
             model_output: transformers.utils.ModelOutput
-            model_output = super().generate(
+            model_output = super(transformers.T5ForConditionalGeneration, self).generate(
                 input_ids=input_ids,
                 stopping_criteria=stopping_criteria,
                 decoder_input_ids=decoder_input_ids,
@@ -152,12 +149,9 @@ class GadgetAssist(transformers.GenerationMixin):
             # which occurs in evaluation during training
 
             # model.generate() outputs starts with decoder_input_ids
-            total_output_str = self.tokenizer.decode(
-                model_output,
-                skip_special_tokens=True,
-                spaces_between_special_tokens=False,
-            )
-
+            total_output_str = self.tokenizer.decode(model_output,
+                                                     skip_special_tokens=True,
+                                                     spaces_between_special_tokens=False)
             try:
                 doc = bs4.BeautifulSoup(total_output_str, features="html.parser")
             except Exception as e:
@@ -234,8 +228,13 @@ class StepwiseGenerator(GadgetAssist):
         # PerSentence generators decode outputs per reasoning step (~per sentence).
         # After each reasoning step, encode newly-generated output and generate the following step.
         # Once the model generates the <result> tag, terminate.
-        output_step = ""
+        expected_max_length: Optional[int] = kwargs.get("max_new_tokens", None)  # max_new_tokens takes precendese
+        if expected_max_length is not None:
+            expected_max_length = input_ids.shape[-1] + kwargs["max_new_tokens"]
+        else:
+            expected_max_length = kwargs.get("max_length", None)
 
+        output_step = ""
         extended_input_ids = input_ids.clone()
 
         # the length of suffix and prefix special tokens differ among models, we assume a single (trailing) <s> token
@@ -247,6 +246,11 @@ class StepwiseGenerator(GadgetAssist):
 
             # remove trailing special tokens -- we assume a single trailing token here (asserted above)
             extended_input_ids = torch.hstack([extended_input_ids[:, :-1], prev_step_ids])
+            if expected_max_length is not None and extended_input_ids.shape[-1] + 2 >= expected_max_length:
+                logger.warning("Generation exceeded given max_length, without generating <result>.")
+                break
+
+            kwargs["attention_mask"] = torch.ones_like(extended_input_ids)  # manually rearrange attention mask
 
             output_ids = super().generate(extended_input_ids, generation_config, logits_processor, stopping_criteria,
                                           prefix_allowed_tokens_fn, synced_gpus, streamer, **kwargs)
