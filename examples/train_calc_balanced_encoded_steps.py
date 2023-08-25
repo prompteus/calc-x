@@ -126,10 +126,11 @@ for dset_name, keys in dataset_to_keys.items():
     preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
     dataset = datasets.load_dataset(f"MU-NLPC/{dset_name}")
     # per-step flattening -> for simplicity, flatten_sample_per_step requires batch_size=1
-    for split, subdset in dataset.items():
-        augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset[split].to_list()))
-        flattened_dataset = itertools.chain(*augmented_dataset)
-        dataset[split] = datasets.Dataset.from_list(list(flattened_dataset))
+
+    # dataset["train"] = dataset["train"].select(range(20))  # TODO: for debug only
+    augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
+    flattened_dataset = itertools.chain(*augmented_dataset)
+    dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
     # dataset = dataset.map(functools.partial(map_flatten_sample_per_step, **keys), batched=True, batch_size=1)
     # encoding
     dataset = dataset.map(preprocessing_fn)
@@ -207,13 +208,13 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=200_000,
-    per_device_train_batch_size=4,  # TODO
-    gradient_accumulation_steps=8,  # TODO
+    per_device_train_batch_size=2,  # TODO
+    gradient_accumulation_steps=16,  # TODO
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=4000,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=8000,
-    save_steps=8000,
+    logging_steps=400,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    eval_steps=4000,  # TODO
+    save_steps=4000,
     evaluation_strategy="steps",
     bf16=True,
     predict_with_generate=True,

@@ -235,6 +235,7 @@ class StepwiseGenerator(GadgetAssist):
             expected_max_length = kwargs.get("max_length", None)
 
         output_step = ""
+        output_ids = None
         extended_input_ids = input_ids.clone()
 
         # the length of suffix and prefix special tokens differ among models, we assume a single (trailing) <s> token
@@ -261,6 +262,9 @@ class StepwiseGenerator(GadgetAssist):
             print("Output step: %s" % output_step)
 
         # collect complete generation output and remove the input segment
+        if output_ids is None:
+            return torch.rand((1, 0))
+
         generated_output_ids = torch.hstack([extended_input_ids[:, :-1], output_ids])
         generated_output_ids = generated_output_ids[:, input_ids.shape[0]+1:]  # we assume batch_size==1 here
 
