@@ -20,8 +20,9 @@ import gadgets
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-# model_name = "google/flan-t5-small"
-model_name = "google/t5-v1_1-xl"
+# model_name = "google/flan-t5-small"  # TODO
+# model_name = "google/t5-v1_1-xl"
+model_name = "logs/earthy-jazz-123/checkpoint-16000"
 
 log_path = "logs/"
 wandb.init(
@@ -131,7 +132,8 @@ for dset_name, keys in dataset_to_keys.items():
     augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
     flattened_dataset = itertools.chain(*augmented_dataset)
     dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
-    # dataset = dataset.map(functools.partial(map_flatten_sample_per_step, **keys), batched=True, batch_size=1)
+    # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
+    dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
     # encoding
     dataset = dataset.map(preprocessing_fn)
     preprocessed_datasets[dset_name] = dataset
@@ -237,5 +239,5 @@ trainer = transformers.Seq2SeqTrainer(
     compute_metrics=metrics,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
-trainer.train()
+trainer.train(resume_from_checkpoint = True)  # TODO: resume_from_checkpoint?
 trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")

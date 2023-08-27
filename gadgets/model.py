@@ -259,6 +259,10 @@ class StepwiseGenerator(GadgetAssist):
             output_step = self.tokenizer.batch_decode(output_ids,
                                                       skip_special_tokens=True,
                                                       spaces_between_special_tokens=False)[0]  # assumes no batching
+            if not output_step.strip():
+                logger.warning("Generated empty step -> terminating generation to avoid cycling.")
+                break
+
             print("Output step: %s" % output_step)
 
         # collect complete generation output and remove the input segment
