@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import unittest.mock
 import warnings
+from typing import Any, Callable, List, Optional, Union
+
+import bs4
 import torch
 import transformers
-import bs4
-from typing import Any, Optional, Callable, List, Union
-import unittest.mock
-
 from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList
 
-from gadgets.gadget import Gadget, Calculator
+from gadgets.gadget import Calculator, Gadget
 from gadgets.markup import GADGET_TAG, OUTPUT_TAG, RESULT_TAG
 
 
@@ -17,9 +17,7 @@ class StopAfterGadgetCall(transformers.generation.StoppingCriteria):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer) -> None:
         self.tokenizer = tokenizer
         self.closing_tag_ids = self.tokenizer(
-            "</" + GADGET_TAG + ">",
-            add_special_tokens=False,
-            return_tensors="pt"
+            "</" + GADGET_TAG + ">", add_special_tokens=False, return_tensors="pt"
         ).input_ids.flatten()
 
     def __call__(self, seq_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
@@ -28,7 +26,7 @@ class StopAfterGadgetCall(transformers.generation.StoppingCriteria):
 
         # check if </gadget> is at the end of the sequence
         self.closing_tag_ids = self.closing_tag_ids.to(seq_ids.device)
-        ending = seq_ids[..., -self.closing_tag_ids.shape[-1]:]
+        ending = seq_ids[..., -self.closing_tag_ids.shape[-1] :]
         ends_with_gadget_call = torch.all(ending == self.closing_tag_ids)
         return ends_with_gadget_call
 
@@ -40,10 +38,10 @@ class GadgetAssist(transformers.GenerationMixin):
     """
 
     def prepare_for_generate(
-            self,
-            tokenizer: transformers.PreTrainedTokenizer,
-            enabled_gadgets: list[Gadget],
-            default_max_tokens: int = 1000,
+        self,
+        tokenizer: transformers.PreTrainedTokenizer,
+        enabled_gadgets: list[Gadget],
+        default_max_tokens: int = 1000,
     ) -> None:
         self.tokenizer = tokenizer
         self.enabled_gadgets = enabled_gadgets
@@ -51,20 +49,20 @@ class GadgetAssist(transformers.GenerationMixin):
 
     @torch.no_grad()
     def generate(
-            self,
-            input_ids: Optional[torch.Tensor] = None,
-            generation_config: Optional[GenerationConfig] = None,
-            logits_processor: Optional[LogitsProcessorList] = None,
-            stopping_criteria: Optional[StoppingCriteriaList] = None,
-            prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-            synced_gpus: Optional[bool] = None,
-            streamer: Optional["BaseStreamer"] = None,
-            **kwargs,
-            # signature of GenerationMixin.generate() in Transformers==4.28.1, with inputs<=>input_ids
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        generation_config: Optional[GenerationConfig] = None,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+        synced_gpus: Optional[bool] = None,
+        streamer: Optional["BaseStreamer"] = None,
+        **kwargs,
+        # signature of GenerationMixin.generate() in Transformers==4.28.1, with inputs<=>input_ids
     ) -> torch.LongTensor:
         """
         Model is expected to generate gadget tags.
-        Whenever a gadget tag is generated, the gadget is called, 
+        Whenever a gadget tag is generated, the gadget is called,
         and the output is fed back into the model inside of an output tag.
 
         Final result is expected to be in result tag.
@@ -76,7 +74,9 @@ class GadgetAssist(transformers.GenerationMixin):
             result: Final result of the model, or None if not found.
         """
 
-        stopping_criteria = transformers.generation.StoppingCriteriaList([StopAfterGadgetCall(self.tokenizer)])
+        stopping_criteria = transformers.generation.StoppingCriteriaList(
+            [StopAfterGadgetCall(self.tokenizer)]
+        )
 
         if kwargs is None:
             kwargs = {}
@@ -85,9 +85,7 @@ class GadgetAssist(transformers.GenerationMixin):
             input_ids = self.tokenizer(input_ids, return_tensors="pt").input_ids
         input_ids = input_ids.to(self.device)
 
-        running_gadgets: dict[str, Gadget] = {
-            g.gadget_id(): g for g in self.enabled_gadgets
-        }
+        running_gadgets: dict[str, Gadget] = {g.gadget_id(): g for g in self.enabled_gadgets}
 
         max_tokens = None
         min_tokens = None
@@ -113,11 +111,11 @@ class GadgetAssist(transformers.GenerationMixin):
         result_str = None
 
         while True:
-            total_output_encoded = self.tokenizer(
-                text_target=total_output_str,
-                add_special_tokens=False,
-                return_tensors="pt"
-            ).input_ids.to(self.device).to(torch.long)
+            total_output_encoded = (
+                self.tokenizer(text_target=total_output_str, add_special_tokens=False, return_tensors="pt")
+                .input_ids.to(self.device)
+                .to(torch.long)
+            )
 
             num_total_tokens = total_output_encoded.shape[-1]
             if last_num_total_tokens is not None and num_total_tokens <= last_num_total_tokens:
@@ -132,13 +130,15 @@ class GadgetAssist(transformers.GenerationMixin):
             if min_tokens is not None:
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
-            decoder_input_ids = torch.cat([
-                torch.tensor(
-                    self.config.decoder_start_token_id,
-                    dtype=torch.long
-                ).to(self.device).reshape(1, 1),
-                total_output_encoded
-            ], dim=-1)
+            decoder_input_ids = torch.cat(
+                [
+                    torch.tensor(self.config.decoder_start_token_id, dtype=torch.long)
+                    .to(self.device)
+                    .reshape(1, 1),
+                    total_output_encoded,
+                ],
+                dim=-1,
+            )
 
             model_output: transformers.utils.ModelOutput
             model_output = super().generate(
@@ -146,7 +146,9 @@ class GadgetAssist(transformers.GenerationMixin):
                 stopping_criteria=stopping_criteria,
                 decoder_input_ids=decoder_input_ids,
                 **kwargs,
-            )[0]  # TODO This does not work in batch mode
+            )[
+                0
+            ]  # TODO This does not work in batch mode
             # which occurs in evaluation during training
 
             # model.generate() outputs starts with decoder_input_ids
@@ -166,7 +168,9 @@ class GadgetAssist(transformers.GenerationMixin):
             evaluated_something = False
             for gadget_tag_input in gadget_tags:
                 next_el = gadget_tag_input.next_sibling
-                while next_el is not None and isinstance(next_el, bs4.NavigableString) and next_el.strip() == "":
+                while (
+                    next_el is not None and isinstance(next_el, bs4.NavigableString) and next_el.strip() == ""
+                ):
                     # skip whitespace
                     next_el = next_el.next_sibling
                 if isinstance(next_el, bs4.Tag) and next_el.name == OUTPUT_TAG:
@@ -191,14 +195,14 @@ class GadgetAssist(transformers.GenerationMixin):
                 # replace total_output_str with the evaluated version
                 total_output_str = str(doc)
 
-            width = 80
-            print(" PARTIAL MODEL OUTPUT ".center(width, "="))
-            print(total_output_str)
-            print("=" * width)
+            # width = 80
+            # print(" PARTIAL MODEL OUTPUT ".center(width, "="))
+            # print(total_output_str)
+            # print("=" * width)
 
-            output_tensor = self.tokenizer.encode(total_output_str,
-                                                  return_tensors="pt",
-                                                  add_special_tokens=True).to(self.device)
+            output_tensor = self.tokenizer.encode(
+                total_output_str, return_tensors="pt", add_special_tokens=True
+            ).to(self.device)
 
             # Commented things violate the generate() interface and may cause trouble in future versions:
 
@@ -233,12 +237,12 @@ str_result_with_tag = f"Final answer is <{RESULT_TAG}>{str_result}</{RESULT_TAG}
 
 
 def test_generate_check_outputs(
-        model: transformers.PreTrainedModel,
-        tokenizer: transformers.PreTrainedTokenizer,
-        mocked_model_outputs: list[str],
-        expected_full_outputs: list[str],
-        expected_result: str | None,
-        enabled_gadgets: list[Gadget],
+    model: transformers.PreTrainedModel,
+    tokenizer: transformers.PreTrainedTokenizer,
+    mocked_model_outputs: list[str],
+    expected_full_outputs: list[str],
+    expected_result: str | None,
+    enabled_gadgets: list[Gadget],
 ) -> bool:
     assert isinstance(model, GadgetAssist)
 
@@ -248,8 +252,7 @@ def test_generate_check_outputs(
     )
 
     mocked_model_outputs_tokenized = [
-        tokenizer(string, return_tensors="pt").input_ids
-        for string in mocked_model_outputs
+        tokenizer(string, return_tensors="pt").input_ids for string in mocked_model_outputs
     ]
 
     with unittest.mock.patch("transformers.GenerationMixin.generate") as patched_model:
@@ -265,7 +268,9 @@ def test_generate_check_outputs(
             remove_invalid_values=True,
         )
 
-    expected_full_output = bs4.BeautifulSoup(" ".join(expected_full_outputs), features="html.parser").prettify()
+    expected_full_output = bs4.BeautifulSoup(
+        " ".join(expected_full_outputs), features="html.parser"
+    ).prettify()
     full_output = bs4.BeautifulSoup(full_output, features="html.parser").prettify()
 
     output_matches = _compare_strings_ignore_whitespace(full_output, expected_full_output)
@@ -301,16 +306,23 @@ TESTS = [
     },
     {
         "mocked": [str_gadget_usage, str_gadget_usage, str_result_with_tag],
-        "expected_outputs": [str_gadget_usage, str_gadget_output, str_gadget_usage, str_gadget_output,
-                             str_result_with_tag],
+        "expected_outputs": [
+            str_gadget_usage,
+            str_gadget_output,
+            str_gadget_usage,
+            str_gadget_output,
+            str_result_with_tag,
+        ],
         "expected_result": str_result,
     },
     {
         "mocked": [str_gadget_usage + str_gadget_usage, str_result_with_tag],
-        "expected_outputs": [str_gadget_usage + str_gadget_output + str_gadget_usage + str_gadget_output,
-                             str_result_with_tag],
+        "expected_outputs": [
+            str_gadget_usage + str_gadget_output + str_gadget_usage + str_gadget_output,
+            str_result_with_tag,
+        ],
         "expected_result": str_result,
-    }
+    },
 ]
 
 

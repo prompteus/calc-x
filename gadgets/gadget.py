@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import abc
+
 import sympy
 
 
 class Gadget(abc.ABC):
-
     def __init__(self):
         pass
 
@@ -20,13 +20,14 @@ class Gadget(abc.ABC):
 
 
 class Calculator(Gadget):
-
     @staticmethod
     def gadget_id() -> str:
         return "calculator"
 
     @staticmethod
     def _float_eval(input_str: str) -> float:
+        if " = around " in input_str:
+            input_str = input_str.split(" = around ")[0]
         expr = Calculator.evaluate(input_str)
         return float(expr.evalf())
 
@@ -56,12 +57,12 @@ class Calculator(Gadget):
             if add_approx:
                 string += f" = around {Calculator.format_sympy_float(x.evalf())}"
             return string
-        
+
         if add_approx:
             return f"{str(x)} = around {Calculator.format_sympy_float(x.evalf())}"
-        
+
         return str(x)
-    
+
     def __call__(self, input_str: str, add_approx: bool = True) -> str:
         try:
             expr = self.evaluate(input_str)

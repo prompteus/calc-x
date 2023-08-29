@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, Iterable
 import re
+from typing import Dict, Iterable
 
 import evaluate
 import numpy as np
@@ -28,20 +28,27 @@ def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> boo
 
     return False
 
+
 def get_result_from_output(output):
-    res = re.findall('\. The final result is (.+?)\.', output)
-    if(len(res)==0):
+    res = re.findall("\. The final result is (.+?)\.", output)
+    if len(res) == 0:
         return None
-    return res[-1] #returning the last occurence if multiple exist
+    result = res[-1]  # returning the last occurence if multiple exist
+    result = result.split("=")[0]
+    # remove leading and trailing non-numeric characters
+    result = re.sub(r"^[^\-\+\d]+", "", result)
+    result = re.sub(r"[^0-9]+$", "", result)
+    return result
+
 
 class MyBaselineMetrics:
-
-    def __init__(self,
-                 tokenizer: transformers.PreTrainedTokenizer,
-                 datasets_id_length: Dict[str, int],
-                 log_predictions: bool = False,
-                 log_predictions_indices: Iterable[int] = None) -> None:
-
+    def __init__(
+        self,
+        tokenizer: transformers.PreTrainedTokenizer,
+        datasets_id_length: Dict[str, int],
+        log_predictions: bool = False,
+        log_predictions_indices: Iterable[int] = None,
+    ) -> None:
         self.sacrebleu = evaluate.load("sacrebleu")
         self.rouge = evaluate.load("rouge")
         self.tokenizer = tokenizer
@@ -54,16 +61,17 @@ class MyBaselineMetrics:
             self.log_predictions_indices = None
 
     def __call__(self, eval_preds: transformers.EvalPrediction) -> Dict[str, float]:
-        assert len(eval_preds.predictions) == sum(self.datasets_id_length.values()), \
-            "Evaluation datasets have unexpected length. Check the given `datasets_id_length` and `eval_dataset`"
+        assert len(eval_preds.predictions) == sum(
+            self.datasets_id_length.values()
+        ), "Evaluation datasets have unexpected length. Check the given `datasets_id_length` and `eval_dataset`"
 
         logged_dict: Dict[str, float] = {}
 
         offset = 0
         for dataset_id, dataset_len in self.datasets_id_length.items():
-            preds = eval_preds.predictions[offset: offset + dataset_len]
-            trues = eval_preds.label_ids[offset: offset + dataset_len]
-            inputs = eval_preds.inputs[offset: offset + dataset_len]
+            preds = eval_preds.predictions[offset : offset + dataset_len]
+            trues = eval_preds.label_ids[offset : offset + dataset_len]
+            inputs = eval_preds.inputs[offset : offset + dataset_len]
 
             offset += dataset_len
 
@@ -74,12 +82,15 @@ class MyBaselineMetrics:
             trues = np.where(trues != -100, trues, self.tokenizer.pad_token_id)
             inputs = np.where(inputs != -100, inputs, self.tokenizer.pad_token_id)
 
-            preds_str = self.tokenizer.batch_decode(preds, skip_special_tokens=True,
-                                                    spaces_between_special_tokens=False)
-            trues_str = self.tokenizer.batch_decode(trues, skip_special_tokens=True,
-                                                    spaces_between_special_tokens=False)
-            inputs_str = self.tokenizer.batch_decode(inputs, skip_special_tokens=True,
-                                                     spaces_between_special_tokens=False)
+            preds_str = self.tokenizer.batch_decode(
+                preds, skip_special_tokens=True, spaces_between_special_tokens=False
+            )
+            trues_str = self.tokenizer.batch_decode(
+                trues, skip_special_tokens=True, spaces_between_special_tokens=False
+            )
+            inputs_str = self.tokenizer.batch_decode(
+                inputs, skip_special_tokens=True, spaces_between_special_tokens=False
+            )
 
             sacrebleu_score = self.sacrebleu.compute(predictions=preds_str, references=trues_str)
             rouge_scores = self.rouge.compute(predictions=preds_str, references=trues_str)
@@ -99,20 +110,22 @@ class MyBaselineMetrics:
                 true_result = "" if true_result is None else true_result
                 correct_results.append(are_numeric_results_same(pred_result, true_result))
                 # num_gadget_calls_true.append(
-                    # sum(isinstance(step, gadgets.datatypes.Interaction) for step in true_chain)
+                # sum(isinstance(step, gadgets.datatypes.Interaction) for step in true_chain)
                 # )
                 # num_gadget_calls_pred.append(
-                    # sum(isinstance(step, gadgets.datatypes.Interaction) for step in pred_chain)
+                # sum(isinstance(step, gadgets.datatypes.Interaction) for step in pred_chain)
                 # )
 
             if self.log_predictions:
                 data = []
                 for i in self.log_predictions_indices:
-                    data.append([
-                        inputs_str[i],
-                        preds_str[i],
-                        trues_str[i],
-                    ])
+                    data.append(
+                        [
+                            inputs_str[i],
+                            preds_str[i],
+                            trues_str[i],
+                        ]
+                    )
 
                 table = wandb.Table(
                     columns=["prompt", "prediction", "label"],
@@ -137,7 +150,8 @@ class MyBaselineMetrics:
 
             logged_dict = {**new_log, **logged_dict}
 
-         
-        logged_dict["avg_correct_results"] = np.mean([logged_dict[f"{dataset_id}_correct_results"] for dataset_id in self.datasets_id_length.keys()])
-        
+        logged_dict["avg_correct_results"] = np.mean(
+            [logged_dict[f"{dataset_id}_correct_results"] for dataset_id in self.datasets_id_length.keys()]
+        )
+
         return logged_dict
