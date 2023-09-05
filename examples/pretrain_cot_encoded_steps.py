@@ -67,21 +67,21 @@ dataset_to_keys = {
             "answer_key": "answer",
             "chain_key": "chain",
         },
-        "MU-NLPC/Calc-ape210k": {
-            "question_key": "question_english_mt",
-            "answer_key": "equation",
-            "chain_key": "chain",
-        },
-        "MU-NLPC/Calc-math_qa": {
-            "question_key": "problem",
-            "answer_key": "rationale",
-            "chain_key": "chain",
-        },
-        "MU-NLPC/Calc-aqua_rat": {
-            "question_key": "question",
-            "answer_key": "rationale",
-            "chain_key": "chain",
-        },
+        # "MU-NLPC/Calc-ape210k": {
+        #     "question_key": "question_english_mt",
+        #     "answer_key": "equation",
+        #     "chain_key": "chain",
+        # },
+        # "MU-NLPC/Calc-math_qa": {
+        #     "question_key": "problem",
+        #     "answer_key": "rationale",
+        #     "chain_key": "chain",
+        # },
+        # "MU-NLPC/Calc-aqua_rat": {
+        #     "question_key": "question",
+        #     "answer_key": "rationale",
+        #     "chain_key": "chain",
+        # },
     }
 }
 
@@ -118,7 +118,7 @@ for train_eval_split in dataset_to_keys.keys():
         dataset = datasets.load_dataset(dset_name)
         # per-step flattening -> for simplicity, flatten_sample_per_step requires batch_size=1
         for key in dataset.keys():
-            # dataset[key] = dataset[key].select(range(200))  # TODO: for debug only
+            dataset[key] = dataset[key].select(range(200))  # TODO: for debug only
             augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset[key].to_list()))
             flattened_dataset = itertools.chain(*augmented_dataset)
             dataset[key] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -164,6 +164,8 @@ preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["test"] = preprocessed_datasets["MU-
 
 # Only using 100 samples for validation from each dataset to speed things up
 for dset_name, dataset in preprocessed_datasets.items():
+    if dset_name not in dataset_to_keys["validation"]:
+        continue
     preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(valid_size))
 
 # Dropping columns so we can merge datasets
