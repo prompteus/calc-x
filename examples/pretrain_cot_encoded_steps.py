@@ -21,7 +21,7 @@ for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
 # model_name = "stas/mt5-tiny-random"  # TODO
-model_name = "google/t5-v1_1-large"
+model_name = "google/t5-v1_1-xl"
 # model_name = "logs/earthy-jazz-123/checkpoint-16000"
 
 log_path = "logs/"
@@ -29,7 +29,7 @@ wandb.init(
     entity="transformersclub",
     project="gadgets",
     tags=[model_name, "calculator", "gsm8k", "aqua", "supervised"],  # TODO
-    group="calculator-gsm8k-aqua-supervised",
+    # group="calculator-gsm8k-aqua-supervised",
     dir=log_path,
 )
 
@@ -118,7 +118,7 @@ for train_eval_split in dataset_to_keys.keys():
         dataset = datasets.load_dataset(dset_name)
         # per-step flattening -> for simplicity, flatten_sample_per_step requires batch_size=1
         for key in dataset.keys():
-            dataset[key] = dataset[key].select(range(200))  # TODO: for debug only
+            # dataset[key] = dataset[key].select(range(200))  # TODO: for debug only
             augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset[key].to_list()))
             flattened_dataset = itertools.chain(*augmented_dataset)
             dataset[key] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -154,7 +154,7 @@ assert all(x == dset_lengths[0] for x in dset_lengths)
 
 # Add validation portion to gsm8k
 # Select the first 100 samples for validation
-valid_size = 100
+valid_size = 1000
 val_data = preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["test"].select(list(range(valid_size)))
 preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["validation"] = val_data  # .to_dict()
 # Remove the first 100 samples from the test set
@@ -204,15 +204,15 @@ training_args = transformers.Seq2SeqTrainingArguments(
     learning_rate=5e-5,
     do_train=True,
     do_eval=True,
-    warmup_steps=1000,
-    max_steps=200_000,
-    per_device_train_batch_size=8,  # TODO
-    gradient_accumulation_steps=4,  # TODO
-    per_device_eval_batch_size=8,
+    warmup_steps=10_000,
+    max_steps=500_000,
+    per_device_train_batch_size=20,  # TODO
+    gradient_accumulation_steps=2,  # TODO
+    per_device_eval_batch_size=16,
     eval_accumulation_steps=4,
-    logging_steps=400,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=4000,  # TODO
-    save_steps=4000,
+    logging_steps=500,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    eval_steps=5000,  # TODO
+    save_steps=5000,
     evaluation_strategy="steps",
     bf16=True,
     # predict_with_generate=True,
