@@ -117,7 +117,9 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
                 inputs = item.string.strip()
             try:
                 next_el: bs4.Tag = item.next_sibling
-                if next_el.name == OUTPUT_TAG:
+                if next_el is None:
+                    outputs = ""
+                elif next_el.name == OUTPUT_TAG:
                     if next_el.string is None:
                         outputs = ""
                     else:
