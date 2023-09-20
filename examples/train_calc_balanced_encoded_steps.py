@@ -20,9 +20,9 @@ import gadgets
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-# model_name = "google/flan-t5-small"  # TODO
+model_name = "google/flan-t5-small"  # TODO
 # model_name = "google/t5-v1_1-xl"
-model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
+# model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
 
 log_path = "logs/"
 wandb.init(
@@ -60,16 +60,45 @@ data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model=model)
 
 
 # Define how to preprocess different datasets
-def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
+def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str):
     def preprocess_fn(sample):
         inputs = tokenizer(sample[question_key], truncation=True)
         labels = tokenizer(text_target=sample[chain_key], truncation=True)
-        return {"question": sample[question_key],
-                "answer": sample[answer_key],
-                "input_ids": inputs.input_ids,
-                "attention_mask": inputs.attention_mask,
-                "labels": labels.input_ids,
-                "chain": sample[chain_key]}
+
+        out_dict = {"question": sample[question_key],
+                    "answer": sample[answer_key],
+                    "input_ids": inputs.input_ids,
+                    "attention_mask": inputs.attention_mask,
+                    "labels": labels.input_ids,
+                    "chain": sample[chain_key]}
+
+        if split == "train":
+            steps_mask = []
+            current_mask = 0
+            inputs_iter = 0
+            step_encodings = tokenizer(sample["steps"], truncation=True).input_ids
+
+            # TODO: comment this
+            current_step = step_encodings[0]
+            while inputs_iter < len(inputs.input_ids):
+                if inputs.input_ids[inputs_iter:inputs_iter + len(current_step) - 1] == current_step[:-1]:
+                    current_mask += 1
+                    added_mask = [current_mask] * len(current_step[:-1])
+                    steps_mask.extend(added_mask)
+                    inputs_iter += len(added_mask)
+                    current_step = step_encodings[current_mask]
+                else:
+                    steps_mask.append(current_mask)
+                    inputs_iter += 1
+            # we include the closing <s> token to the last step
+            steps_mask[-1] = steps_mask[-2]
+            # debug: tokenizer.batch_decode([[inputs.input_ids[i] for i, _ in enumerate(inputs.input_ids) if steps_mask_l[i] == current_i] for current_i in set(steps_mask_l)])
+            # steps_mask_stripped = steps_mask_l[:len(inputs.input_ids)]
+            assert len(steps_mask) == len(inputs.input_ids), "Unexpected length of steps mask. Was %s, should be %s" \
+                                                             % (len(steps_mask), len(inputs.input_ids))
+            out_dict["steps_mask"] = steps_mask
+
+        return out_dict
 
     return preprocess_fn
 
@@ -102,21 +131,27 @@ dataset_to_keys = {
 
 
 # see https://discuss.huggingface.co/t/making-multiple-samples-from-single-samples-using-huggingface-datasets/6819
-def flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answer_key: str) -> Iterator[dict[str, List[str]]]:
+def flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answer_key: str) -> Iterator[
+    dict[str, List[str]]]:
     sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
 
-    steps = [step.strip()+sep for step in x[chain_key].split(sep)]
+    steps = [step.strip() + sep for step in x[chain_key].split(sep)]
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
-    questions = ["".join((x[question_key], " ", sep.join(steps[:i])))
+    questions = ["".join((x[question_key], " ", sep.join(steps[:i])))  # TODO: this produces duplicate sep (".")
                  for i in range(0, len(steps)) if valid_prediction_steps[i]]
     chains = [step for i, step in enumerate(steps) if valid_prediction_steps[i]]
     for question, target in zip(questions, chains):
-        yield {question_key: question, chain_key: target, answer_key: x[answer_key]}
+        yield {question_key + "_orig": x[question_key],
+               question_key: question,
+               "steps": steps,
+               chain_key: target,
+               answer_key: x[answer_key]}
 
 
-def map_flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answer_key: str, sep: str = "\n") -> dict[str, List[str]]:
+def map_flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answer_key: str, sep: str = "\n") -> \
+dict[str, List[str]]:
     steps = x[chain_key][0].split(sep)
     return {question_key: ["".join((x[question_key][0], " ", sep.join(steps[:i]))) for i in range(0, len(steps))],
             chain_key: [step.strip() for step in steps],
@@ -127,22 +162,25 @@ def map_flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, a
 preprocessed_datasets = {}
 ds_to_lens = {}
 for dset_name, keys in dataset_to_keys.items():
-    preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
     dataset = datasets.load_dataset(f"MU-NLPC/{dset_name}")
 
     if dset_name in train_datasets_keys:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        # dataset["train"] = dataset["train"].select(range(20))  # TODO: for debug only
+        dataset["train"] = dataset["train"].select(range(2000))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
         # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
         dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
+        # in training datasets, we additionally encode steps mask to be used for aggregation of each step encoding
+        dataset["train"] = dataset["train"].map(preprocessing_factory(tokenizer, **keys, split="train"))
     else:
         print("Omitting dataset %s from training" % dset_name)
-    # encoding -> all datasets
-    dataset = dataset.map(preprocessing_fn)
+    if dset_name in val_datasets_keys:
+        # steps mask is not available during the generation -> the model has to figure out the steps itself
+        dataset = dataset.map(preprocessing_factory(tokenizer, **keys, split="validation"))
+
     preprocessed_datasets[dset_name] = dataset
 
 # Fixing validation error on too-long incomplete chain without closing > tag
