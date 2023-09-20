@@ -22,7 +22,7 @@ for i in range(torch.cuda.device_count()):
 
 # model_name = "google/flan-t5-small"  # TODO
 # model_name = "google/t5-v1_1-xl"
-model_name = "logs/earthy-jazz-123/checkpoint-16000"
+model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
 
 log_path = "logs/"
 wandb.init(
@@ -73,6 +73,9 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
 
     return preprocess_fn
 
+
+train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat"]
+val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k", "Calc-math_qa", "Calc-aqua_rat"]
 
 dataset_to_keys = {
     "Calc-gsm8k": {
@@ -126,15 +129,19 @@ ds_to_lens = {}
 for dset_name, keys in dataset_to_keys.items():
     preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
     dataset = datasets.load_dataset(f"MU-NLPC/{dset_name}")
-    # per-step flattening -> for simplicity, flatten_sample_per_step requires batch_size=1
 
-    # dataset["train"] = dataset["train"].select(range(20))  # TODO: for debug only
-    augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
-    flattened_dataset = itertools.chain(*augmented_dataset)
-    dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
-    # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
-    dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
-    # encoding
+    if dset_name in train_datasets_keys:
+        # we apply per-step flattening on only train datasets
+        # for simplicity, flatten_sample_per_step requires batch_size=1
+        # dataset["train"] = dataset["train"].select(range(20))  # TODO: for debug only
+        augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
+        flattened_dataset = itertools.chain(*augmented_dataset)
+        dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
+        # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
+        dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
+    else:
+        print("Omitting dataset %s from training" % dset_name)
+    # encoding -> all datasets
     dataset = dataset.map(preprocessing_fn)
     preprocessed_datasets[dset_name] = dataset
 
@@ -162,7 +169,7 @@ dset_lengths = [len(dset["train"]) for dset in preprocessed_datasets.values()]
 # Check if all train dsets have the same size
 assert all(x == dset_lengths[0] for x in dset_lengths)
 
-# Add validation portion to gsm8k
+# Create a validation portion in gsm8k
 # Select the first 100 samples for validation
 valid_size = 100
 val_data = preprocessed_datasets["Calc-gsm8k"]["test"].select(list(range(valid_size)))
@@ -174,6 +181,9 @@ preprocessed_datasets["Calc-gsm8k"]["test"] = preprocessed_datasets["Calc-gsm8k"
 
 # Only using 100 samples for validation from each dataset to speed things up
 for dset_name, dataset in preprocessed_datasets.items():
+    if dset_name not in val_datasets_keys:
+        print("Omitting dataset %s from validation" % dset_name)
+        continue
     preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(valid_size))
 
 # Dropping columns so we can merge datasets
@@ -191,7 +201,6 @@ test_ds = concatenate_datasets([dset["test"] for dset in preprocessed_datasets.v
 train_ds.shuffle()
 
 log_predictions_indices = np.array(range(valid_size))
-log_predictions_indices
 
 # PART: custom evaluations' logging
 metrics = gadgets.metrics.MyMetrics(
@@ -205,11 +214,11 @@ metrics = gadgets.metrics.MyMetrics(
 training_args = transformers.Seq2SeqTrainingArguments(
     output_dir="./logs/" + wandb.run.name,  # TODO add
     # output_dir="./logs/",
-    learning_rate=2e-5,
+    learning_rate=5e-5,
     do_train=True,
     do_eval=True,
     warmup_steps=1000,
-    max_steps=200_000,
+    max_steps=100_000,
     per_device_train_batch_size=2,  # TODO
     gradient_accumulation_steps=16,  # TODO
     per_device_eval_batch_size=1,
@@ -226,7 +235,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     metric_for_best_model="avg_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=15,
+    save_total_limit=10,
 )
 
 trainer = transformers.Seq2SeqTrainer(
@@ -239,5 +248,5 @@ trainer = transformers.Seq2SeqTrainer(
     compute_metrics=metrics,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
-trainer.train(resume_from_checkpoint = True)  # TODO: resume_from_checkpoint?
+trainer.train()  # TODO: resume_from_checkpoint?
 trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")
