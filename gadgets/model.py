@@ -329,7 +329,7 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                 unique_step_idx, idx_count = self.steps_mask.unique(return_counts=True)
 
                 steps_embeddings_sum = torch.zeros((orig_outputs.last_hidden_state.size(0),
-                                                    unique_step_idx.size(0),
+                                                    unique_step_idx.max()+1,  # robust to missing mask values
                                                     # input_size,
                                                     orig_outputs.last_hidden_state.size(-1)),
                                                    dtype=torch.float, device=steps_mask_idx.device)
@@ -342,13 +342,15 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                 # normalize per-step encodings
                 # due to the per-sample counts, this requires for-loop
                 for batch_i in range(batch_size):
-                    num_embs = torch.tensor([(self.steps_mask[batch_i] == val).sum() for val in unique_step_idx],
+                    num_embs = torch.tensor([(self.steps_mask[batch_i] == val).sum()
+                                             for val in range(unique_step_idx.max() + 1)],
                                             device=self.steps_mask.device)
                     # note: sentence-transformers also rescale (clamp) sum mask to min=1e-9 (see models/Pooling.py)
 
                     # vals_sum is a zero denominator if steps do not contain any embeddings
                     steps_embeddings_sum[batch_i] /= num_embs.unsqueeze(-1).expand_as(steps_embeddings_sum[batch_i])
-
+                    # drop embeddings of steps containing no embeddings:
+                    steps_embeddings_sum[batch_i][~num_embs.bool()] = torch.zeros((emb_size,))
                     # test: assert steps_embeddings_sum[sample_i].isclose(expected_avg[sample_i], rtol=2e-2).all()
 
                     num_steps = sum(num_embs.bool())  # number of reasoning steps
