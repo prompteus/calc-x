@@ -35,7 +35,7 @@ wandb.init(
 )
 
 tokenizer = transformers.T5Tokenizer.from_pretrained(model_name)
-model = transformers.T5ForConditionalGeneration.from_pretrained(model_name)
+model = gadgets.model.stepwise_gadget_model(transformers.T5ForConditionalGeneration).from_pretrained(model_name)
 data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model=model)
 
 
@@ -43,7 +43,7 @@ data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model=model)
 def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str):
     def preprocess_fn(sample, padding_length: int = 800):
         inputs = tokenizer(sample[question_key], truncation=True)
-        labels = tokenizer( text_target=sample[chain_key], truncation=True)
+        labels = tokenizer(text_target=sample[chain_key], truncation=True)
 
         out_dict = {"question": sample[question_key],
                     "answer": sample[answer_key],
@@ -65,13 +65,18 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split:
                     added_mask = [current_mask] * len(current_step[:-1])
                     steps_mask.extend(added_mask)
                     inputs_iter += len(added_mask)
-                    current_step = step_encodings[current_mask]
+                    try:
+                        current_step = step_encodings[current_mask]
+                    except IndexError:
+                        print("Reasoning step resides within input text. Dropping sample to avoid ambiguity.")
+                        steps_mask = [0] * len(inputs.input_ids)
+                        break
                 else:
                     steps_mask.append(current_mask)
                     inputs_iter += 1
             # we include the closing <s> token to the last step
             steps_mask[-1] = steps_mask[-2]
-            # debug: tokenizer.batch_decode([[inputs.input_ids[i] for i, _ in enumerate(inputs.input_ids) if steps_mask_l[i] == current_i] for current_i in set(steps_mask_l)])
+            # debug: tokenizer.batch_decode([[inputs.input_ids[i] for i, _ in enumerate(inputs.input_ids) if current_mask[i] == current_i] for current_i in set(current_mask)])
             # steps_mask_stripped = steps_mask_l[:len(inputs.input_ids)]
             assert len(steps_mask) == len(inputs.input_ids), "Unexpected length of steps mask. Was %s, should be %s" \
                                                              % (len(steps_mask), len(inputs.input_ids))
@@ -116,6 +121,8 @@ dataset_to_keys = {
     }
 }
 
+valid_size = 800
+
 
 # see https://discuss.huggingface.co/t/making-multiple-samples-from-single-samples-using-huggingface-datasets/6819
 def flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answer_key: str) -> Iterator[
@@ -150,18 +157,25 @@ ds_to_lens = {}
 
 for train_eval_split in dataset_to_keys.keys():
     for dset_name, keys in dataset_to_keys[train_eval_split].items():
-        preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys, split=train_eval_split)
         dataset = datasets.load_dataset(dset_name)
         # per-step flattening -> for simplicity, flatten_sample_per_step requires batch_size=1
-        for key in dataset.keys():
-            dataset[key] = dataset[key].select(range(200))  # TODO: for debug only
+        for key in list(dataset.keys()):
+            if train_eval_split == "validation" and "gsm" in dset_name:
+                # GSM does not have standard validation split, so we need to create it
+                val_data = dataset["test"].select(list(range(min(valid_size, len(dataset["test"])))))
+                dataset["validation"] = val_data
+                # Remove the first 100 samples from the test set
+                dataset["test"] = dataset["test"].select(list(range(valid_size, len(dataset["test"]))))
+
+            # dataset[key] = dataset[key].select(range(min(800, len(dataset[key]))))  # TODO: for debug only
             augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset[key].to_list()))
             flattened_dataset = itertools.chain(*augmented_dataset)
             dataset[key] = datasets.Dataset.from_list(list(flattened_dataset))
             # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
             dataset[key] = dataset[key].filter(lambda row: row[keys["chain_key"]].strip())
         # encoding
-        dataset = dataset.map(preprocessing_fn)
+        dataset = dataset.map(preprocessing_factory(tokenizer, **keys, split=train_eval_split))
+
         preprocessed_datasets[dset_name] = dataset
 
 # Fixing validation error on too-long incomplete chain without closing > tag
@@ -188,34 +202,27 @@ dset_lengths = [len(dset["train"]) for dset in preprocessed_datasets.values()]
 # Check if all train dsets have the same size
 assert all(x == dset_lengths[0] for x in dset_lengths)
 
-# Add validation portion to gsm8k
-# Select the first 100 samples for validation
-valid_size = 800
-val_data = preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["test"].select(list(range(valid_size)))
-preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["validation"] = val_data  # .to_dict()
-# Remove the first 100 samples from the test set
-preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["test"] = preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["test"].select(
-    list(range(valid_size, len(preprocessed_datasets["MU-NLPC/Calc-gsm8k"]["test"])))
-)
-
 # Only using 100 samples for validation from each dataset to speed things up
 for dset_name, dataset in preprocessed_datasets.items():
     if dset_name not in dataset_to_keys["validation"]:
         continue
-    preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(valid_size))
+    preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(min(valid_size,
+                                                                                            len(dataset["validation"]))))
 
 # Dropping columns so we can merge datasets
-columns_to_keep = ["question", "answer", "input_ids", "attention_mask", "labels", "chain"]
+# columns_to_keep = ["question", "answer", "input_ids", "attention_mask", "labels", "chain"]
+columns_to_keep = ["input_ids", "attention_mask", "labels", "steps_mask"]
 for dset_name, dataset in preprocessed_datasets.items():
-    if dset_name not in dataset_to_keys["validation"]:
-        # we are merging only validation datasets!
-        continue
+    # if dset_name not in dataset_to_keys["validation"]:
+    #     # we are merging only validation datasets!
+    #     continue
     for split_name, split_dset in dataset.items():
         columns_to_remove = [column for column in split_dset.column_names if column not in columns_to_keep]
         dataset[split_name] = split_dset.remove_columns(columns_to_remove)
 
 # concating datasets
-train_ds = preprocessed_datasets['kaist-ai/CoT-Collection']["train"]
+train_ds = concatenate_datasets([dset["train"] for dset_name, dset in preprocessed_datasets.items()
+                                 if dset_name in dataset_to_keys["train"]])
 
 valid_ds = concatenate_datasets([dset["validation"] for dset_name, dset in preprocessed_datasets.items()
                                  if dset_name in dataset_to_keys["validation"]])
@@ -250,7 +257,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     eval_steps=5000,  # TODO
     save_steps=5000,
     evaluation_strategy="steps",
-    bf16=True,
+    bf16=True,  # TODO
     # predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
@@ -259,6 +266,8 @@ training_args = transformers.Seq2SeqTrainingArguments(
     # greater_is_better=True,
     load_best_model_at_end=True,
     save_total_limit=10,
+    # no_cuda=True,  # TODO: remove
+    remove_unused_columns=False,
 )
 
 trainer = transformers.Seq2SeqTrainer(
