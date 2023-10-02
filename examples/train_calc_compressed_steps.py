@@ -106,7 +106,7 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split:
 
 
 train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat"]
-val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k", "Calc-math_qa", "Calc-aqua_rat"]
+val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k"]
 
 dataset_to_keys = {
     "Calc-gsm8k": {
@@ -181,7 +181,7 @@ for dset_name, keys in dataset_to_keys.items():
         print("Omitting dataset %s from training" % dset_name)
     if dset_name in val_datasets_keys:
         # steps mask is not available during the generation -> the model has to figure out the steps itself
-        dataset = dataset.map(preprocessing_factory(tokenizer, **keys, split="validation"))
+        dataset["validation"] = dataset["validation"].map(preprocessing_factory(tokenizer, **keys, split="validation"))
 
     preprocessed_datasets[dset_name] = dataset
 
@@ -235,8 +235,8 @@ for dset_name, dataset in preprocessed_datasets.items():
         dataset[split_name] = split_dset.remove_columns(columns_to_remove)
 
 # concating datasets
-train_ds = concatenate_datasets([dset["train"] for dset in preprocessed_datasets.values()])
-valid_ds = concatenate_datasets([dset["validation"] for dset in preprocessed_datasets.values()])
+train_ds = concatenate_datasets([d["train"] for k, d in preprocessed_datasets.items() if k in train_datasets_keys])
+valid_ds = concatenate_datasets([d["validation"] for k, d in preprocessed_datasets.items() if k in val_datasets_keys])
 test_ds = concatenate_datasets([dset["test"] for dset in preprocessed_datasets.values()])  # NOT USED
 
 train_ds.shuffle()
