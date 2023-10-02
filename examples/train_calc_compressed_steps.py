@@ -108,6 +108,8 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split:
 train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat"]
 val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k"]
 
+valid_size = 100  # TODO Select the first 100 samples for validation
+
 dataset_to_keys = {
     "Calc-gsm8k": {
         "question_key": "question",
@@ -180,6 +182,13 @@ for dset_name, keys in dataset_to_keys.items():
     else:
         print("Omitting dataset %s from training" % dset_name)
     if dset_name in val_datasets_keys:
+        if "gsm" in dset_name:
+            # GSM does not have standard validation split, so we need to create it
+            val_data = dataset["test"].select(list(range(valid_size)))
+            dataset["validation"] = val_data
+            # Remove the first 100 samples from the test set
+            dataset["test"] = dataset["test"].select(list(range(valid_size, len(dataset["test"]))))
+
         # steps mask is not available during the generation -> the model has to figure out the steps itself
         dataset["validation"] = dataset["validation"].map(preprocessing_factory(tokenizer, **keys, split="validation"))
 
@@ -209,22 +218,13 @@ dset_lengths = [len(dset["train"]) for dset in preprocessed_datasets.values()]
 # Check if all train dsets have the same size
 assert all(x == dset_lengths[0] for x in dset_lengths)
 
-# Create a validation portion in gsm8k
-# Select the first 100 samples for validation
-valid_size = 100  # TODO
-val_data = preprocessed_datasets["Calc-gsm8k"]["test"].select(list(range(valid_size)))
-preprocessed_datasets["Calc-gsm8k"]["validation"] = val_data  # .to_dict()
-# Remove the first 100 samples from the test set
-preprocessed_datasets["Calc-gsm8k"]["test"] = preprocessed_datasets["Calc-gsm8k"]["test"].select(
-    list(range(valid_size, len(preprocessed_datasets["Calc-gsm8k"]["test"])))
-)
-
 # Only using 100 samples for validation from each dataset to speed things up
 for dset_name, dataset in preprocessed_datasets.items():
     if dset_name not in val_datasets_keys:
         print("Omitting dataset %s from validation" % dset_name)
         continue
-    preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(valid_size))
+    if len(preprocessed_datasets[dset_name]["validation"]) > valid_size:
+        preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(valid_size))
 
 # Dropping columns so we can merge datasets
 # columns_to_keep = ["question", "answer", "input_ids", "attention_mask", "labels", "chain"]
