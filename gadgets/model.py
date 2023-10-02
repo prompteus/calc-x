@@ -350,7 +350,8 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                     # vals_sum is a zero denominator if steps do not contain any embeddings
                     steps_embeddings_sum[batch_i] /= num_embs.unsqueeze(-1).expand_as(steps_embeddings_sum[batch_i])
                     # drop embeddings of steps containing no embeddings:
-                    steps_embeddings_sum[batch_i][~num_embs.bool()] = torch.zeros((emb_size,))
+                    steps_embeddings_sum[batch_i][~num_embs.bool()] = torch.zeros((emb_size,),
+                                                                                  device=steps_embeddings_sum.device)
                     # test: assert steps_embeddings_sum[sample_i].isclose(expected_avg[sample_i], rtol=2e-2).all()
 
                     num_steps = sum(num_embs.bool())  # number of reasoning steps
@@ -361,7 +362,7 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                         all_positions = torch.arange(self.steps_mask.size(-1), device=self.steps_mask.device)
                         steps_begin_pos = all_positions[self.steps_mask[batch_i] == 1].min()
                         orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + num_steps] = \
-                            steps_embeddings_sum[batch_i][:num_steps]
+                            steps_embeddings_sum[batch_i][num_embs.bool()]  # pick only the non-zero embeddings
 
                         # we keep other encodings as-is, but we hide them with attention mask
                         attention_mask[batch_i][:steps_begin_pos + num_steps] = 1
