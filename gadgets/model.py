@@ -379,7 +379,7 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                         attention_mask[batch_i][steps_begin_pos + num_steps:] = 0
                         # assert that the last attended position contains encoding of last reasoning step  # no test
                         assert (orig_outputs.last_hidden_state[batch_i][attention_mask[batch_i].bool()][-1] ==
-                                steps_embeddings_sum[batch_i][num_steps - 1]).all()
+                                steps_embeddings_sum[batch_i][num_embs.bool()][replaced_steps-1]).all()
 
                 # orig_encoder_output.last_hidden_state and encoder_kwargs["attention_mask"] are adjusted
                 return orig_outputs
