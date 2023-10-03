@@ -42,6 +42,7 @@ class MyMetrics:
         self.log_predictions = log_predictions
         self.datasets_id_length = datasets_id_length
 
+        # deprecated & to be removed:
         if log_predictions:
             self.log_predictions_indices = list(log_predictions_indices)
         else:
@@ -98,18 +99,9 @@ class MyMetrics:
                 )
 
             if self.log_predictions:
-                data = []
-                for i in self.log_predictions_indices:
-                    data.append([
-                        inputs_str[i],
-                        preds_str[i],
-                        trues_str[i],
-                    ])
+                data = list(zip(inputs_str, preds_str, trues_str))
 
-                table = wandb.Table(
-                    columns=["prompt", "prediction", "label"],
-                    data=data,
-                )
+                table = wandb.Table(columns=["prompt", "prediction", "label"], data=data)
 
                 wandb.log({"%s_prediction_examples" % dataset_id: table})
 
