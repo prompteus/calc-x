@@ -368,7 +368,7 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                             orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
                                 steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps]
                         except RuntimeError:
-                            print("Orig outputs size: %s\nNew outputs size: %s\nBegin pos: %s\nSteps num: \%" %
+                            print("Orig outputs size: %s\nNew outputs size: %s\nBegin pos: %s\nSteps num: \n%s" %
                                   (orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps].shape,
                                    steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps].shape,
                                    steps_begin_pos, replaced_steps))
