@@ -361,8 +361,11 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                         # -> argmin reimplementation retrieving first non-input (=stepwise) position among encodings
                         all_positions = torch.arange(self.steps_mask.size(-1), device=self.steps_mask.device)
                         steps_begin_pos = all_positions[self.steps_mask[batch_i] == 1].min()
-                        orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + num_steps] = \
-                            steps_embeddings_sum[batch_i][num_embs.bool()]  # pick only the non-zero embeddings
+
+                        # replace with only the non-zero embeddings that fit to the context of existing ones
+                        replaced_steps = min(len(orig_outputs.last_hidden_state[batch_i][steps_begin_pos:]), num_steps)
+                        orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
+                            steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps]
 
                         # we keep other encodings as-is, but we hide them with attention mask
                         attention_mask[batch_i][:steps_begin_pos + num_steps] = 1
