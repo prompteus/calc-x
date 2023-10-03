@@ -364,8 +364,15 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
 
                         # replace with only the non-zero embeddings that fit to the context of existing ones
                         replaced_steps = min(len(orig_outputs.last_hidden_state[batch_i][steps_begin_pos:]), num_steps)
-                        orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
-                            steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps]
+                        try:
+                            orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
+                                steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps]
+                        except RuntimeError:
+                            print("Orig outputs size: %s\nNew outputs size: %s\nBegin pos: %s\nSteps num: \%" %
+                                  (orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps].shape,
+                                   steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps].shape,
+                                   steps_begin_pos, replaced_steps))
+                            raise
 
                         # we keep other encodings as-is, but we hide them with attention mask
                         attention_mask[batch_i][:steps_begin_pos + num_steps] = 1
