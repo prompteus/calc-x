@@ -90,34 +90,19 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split:
 
 
 dataset_to_keys = {
-    "train": {
-        "kaist-ai/CoT-Collection": {
-            "question_key": "source",
-            "answer_key": "target",
-            "chain_key": "rationale",
-        },
-    },
     "validation": {
         "MU-NLPC/Calc-gsm8k": {
             "question_key": "question",
             "answer_key": "answer",
             "chain_key": "chain",
         },
-        # "MU-NLPC/Calc-ape210k": {
-        #     "question_key": "question_english_mt",
-        #     "answer_key": "equation",
-        #     "chain_key": "chain",
-        # },
-        # "MU-NLPC/Calc-math_qa": {
-        #     "question_key": "problem",
-        #     "answer_key": "rationale",
-        #     "chain_key": "chain",
-        # },
-        # "MU-NLPC/Calc-aqua_rat": {
-        #     "question_key": "question",
-        #     "answer_key": "rationale",
-        #     "chain_key": "chain",
-        # },
+    },
+    "train": {
+        "kaist-ai/CoT-Collection": {
+            "question_key": "source",
+            "answer_key": "target",
+            "chain_key": "rationale",
+        },
     }
 }
 
@@ -160,12 +145,13 @@ for train_eval_split in dataset_to_keys.keys():
         dataset = datasets.load_dataset(dset_name)
         # per-step flattening -> for simplicity, flatten_sample_per_step requires batch_size=1
         for key in list(dataset.keys()):
-            if train_eval_split == "validation" and "gsm" in dset_name:
+            if key == "test" and "gsm" in dset_name:
                 # GSM does not have standard validation split, so we need to create it
                 val_data = dataset["test"].select(list(range(min(valid_size, len(dataset["test"])))))
                 dataset["validation"] = val_data
-                # Remove the first 100 samples from the test set
-                dataset["test"] = dataset["test"].select(list(range(valid_size, len(dataset["test"]))))
+                # Remove the test split for now
+                del dataset["test"]
+                key = "validation"
 
             # dataset[key] = dataset[key].select(range(min(800, len(dataset[key]))))  # TODO: for debug only
             augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset[key].to_list()))
@@ -173,8 +159,8 @@ for train_eval_split in dataset_to_keys.keys():
             dataset[key] = datasets.Dataset.from_list(list(flattened_dataset))
             # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
             dataset[key] = dataset[key].filter(lambda row: row[keys["chain_key"]].strip())
-        # encoding
-        dataset = dataset.map(preprocessing_factory(tokenizer, **keys, split=train_eval_split))
+        # encoding -> pretraining validation also needs steps_mask, hence the fixed "train" split
+        dataset = dataset.map(preprocessing_factory(tokenizer, **keys, split="train"))
 
         preprocessed_datasets[dset_name] = dataset
 
