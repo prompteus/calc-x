@@ -194,11 +194,6 @@ class GadgetAssist(transformers.GenerationMixin):
                 # replace total_output_str with the evaluated version
                 total_output_str = str(doc)
 
-            width = 80
-            print(" PARTIAL MODEL OUTPUT ".center(width, "="))
-            print(total_output_str)
-            print("=" * width)
-
             output_tensor = self.tokenizer.encode(total_output_str,
                                                   return_tensors="pt",
                                                   add_special_tokens=True).to(self.device)
@@ -235,6 +230,8 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
         # PerSentence generators decode outputs per reasoning step (~per sentence).
         # After each reasoning step, encode newly-generated output and generate the following step.
         # Once the model generates the <result> tag, terminate.
+        print("Input query: %s" % self.tokenizer.decode(input_ids[0]))
+
         expected_max_length: Optional[int] = kwargs.get("max_new_tokens", None)  # max_new_tokens takes precendese
         if expected_max_length is not None:
             expected_max_length = input_ids.shape[-1] + kwargs["max_new_tokens"]
@@ -380,15 +377,8 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
 
                         # replace with only the non-zero embeddings that fit to the context of existing ones
                         replaced_steps = min(len(orig_outputs.last_hidden_state[batch_i][steps_begin_pos:]), num_steps)
-                        try:
-                            orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
-                                steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps]
-                        except RuntimeError:
-                            print("Orig outputs size: %s\nNew outputs size: %s\nBegin pos: %s\nSteps num: \n%s" %
-                                  (orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps].shape,
-                                   steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps].shape,
-                                   steps_begin_pos, replaced_steps))
-                            raise
+                        orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
+                            steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps]
 
                         # we keep other encodings as-is, but we hide them with attention mask
                         attention_mask[batch_i][:steps_begin_pos + num_steps] = 1
