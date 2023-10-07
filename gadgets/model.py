@@ -309,6 +309,14 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
             steps_mask: Optional[torch.LongTensor] = None
             superclass: Optional[type] = None
 
+            max_batch_size = 32
+            max_input_length = 800
+
+            max_steps_sums = torch.zeros((max_batch_size,
+                                          max_input_length,
+                                          self.config.hidden_size), dtype=torch.float, device=self.device)
+            all_positions = torch.arange(self.config.max_length, device=self.device)
+
             def forward(self,
                         steps_mask: Optional[torch.LongTensor] = None,
                         input_ids=None,
@@ -330,7 +338,7 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                                                        cross_attn_head_mask, past_key_values, use_cache,
                                                        output_attentions, output_hidden_states, return_dict)
                 # test:
-                # orig_encoder_output.last_hidden_state = torch.tensor([[[0, 0], [0, 0], [0, 1], [1, 1],
+                # orig_outputs.last_hidden_state = torch.tensor([[[0, 0], [0, 0], [0, 1], [1, 1],
                 #                                                        [2, 2], [2, 2], [0, 1]]], dtype=torch.float)
                 # self.steps_mask = torch.tensor([[0, 1, 1, 1, 2, 2, 0]], dtype=torch.int64)
                 # expected_sum = torch.tensor([[[0, 1], [1, 2], [4, 4]]], dtype=torch.float)
@@ -341,33 +349,33 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                 steps_mask_idx = self.steps_mask[:, :input_size].unsqueeze(-1).expand(-1, -1, emb_size).clone()
                 unique_step_idx, idx_count = self.steps_mask.unique(return_counts=True)
 
-                steps_embeddings_sum = torch.zeros((orig_outputs.last_hidden_state.size(0),
-                                                    unique_step_idx.max()+1,  # robust to missing mask values
-                                                    # input_size,
-                                                    orig_outputs.last_hidden_state.size(-1)),
-                                                   dtype=torch.float, device=steps_mask_idx.device)
+                # steps_embeddings_sum = torch.zeros((batch_size,
+                #                                     unique_step_idx.max()+1,  # robust to missing mask values
+                #                                     emb_size), dtype=torch.float, device=steps_mask_idx.device)
+                steps_embeddings_sum = self.max_steps_sums[:batch_size, :unique_step_idx.max()+1, :emb_size]
+
                 steps_embeddings_sum.scatter_add_(dim=1,
                                                   index=steps_mask_idx,
                                                   src=orig_outputs.last_hidden_state)
 
-                # test per-group sum: assert steps_embeddings_sum.isclose(expected_sum, rtol=2e-2).all()
+                # test: per-group sum:
+                # assert steps_embeddings_sum.isclose(expected_sum, rtol=2e-2).all()
 
-                # normalize per-step encodings
+                # NORMALIZE PER-STEP ENCODINGS
+                num_embs = torch.vstack([(self.steps_mask == val).sum(-1) for val in range(unique_step_idx.max() + 1)]).T
+                # vals_sum is a zero denominator if steps do not contain any embeddings
+                steps_embeddings_sum /= num_embs.unsqueeze(-1).expand(-1, -1, steps_embeddings_sum.size(-1))
+                # drop embeddings of steps containing no embeddings:
+                steps_embeddings_sum[~num_embs.bool()] = 0
+
                 # due to the per-sample counts, this requires for-loop
                 for batch_i in range(batch_size):
-                    num_embs = torch.tensor([(self.steps_mask[batch_i] == val).sum()
-                                             for val in range(unique_step_idx.max() + 1)],
-                                            device=self.steps_mask.device)
                     # note: sentence-transformers also rescale (clamp) sum mask to min=1e-9 (see models/Pooling.py)
 
-                    # vals_sum is a zero denominator if steps do not contain any embeddings
-                    steps_embeddings_sum[batch_i] /= num_embs.unsqueeze(-1).expand_as(steps_embeddings_sum[batch_i])
-                    # drop embeddings of steps containing no embeddings:
-                    steps_embeddings_sum[batch_i][~num_embs.bool()] = torch.zeros((emb_size,),
-                                                                                  device=steps_embeddings_sum.device)
-                    # test: assert steps_embeddings_sum[sample_i].isclose(expected_avg[sample_i], rtol=2e-2).all()
+                    # test: the embeddings' averages match the expected
+                    # assert steps_embeddings_sum[batch_i].isclose(expected_avg[batch_i], rtol=2e-2).all()
 
-                    num_steps = sum(num_embs.bool())  # number of reasoning steps
+                    num_steps = sum(num_embs[batch_i].bool())  # number of reasoning steps
 
                     # Insert the encodings of reasoning steps after the encodings of the input tokens
                     if (self.steps_mask[batch_i] == 1).any():
@@ -378,16 +386,20 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                         # replace with only the non-zero embeddings that fit to the context of existing ones
                         replaced_steps = min(len(orig_outputs.last_hidden_state[batch_i][steps_begin_pos:]), num_steps)
                         orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
-                            steps_embeddings_sum[batch_i][num_embs.bool()][:replaced_steps]
+                            steps_embeddings_sum[batch_i][num_embs[batch_i].bool()][:replaced_steps]
 
                         # we keep other encodings as-is, but we hide them with attention mask
                         attention_mask[batch_i][:steps_begin_pos + num_steps] = 1
                         attention_mask[batch_i][steps_begin_pos + num_steps:] = 0
-                        # assert that the last attended position contains encoding of last reasoning step  # no test
+                        # assert that the last attended position contains encoding of last reasoning step
+                        # exclude from test
                         assert (orig_outputs.last_hidden_state[batch_i][attention_mask[batch_i].bool()][-1] ==
-                                steps_embeddings_sum[batch_i][num_embs.bool()][replaced_steps-1]).all()
+                                steps_embeddings_sum[batch_i][num_embs[batch_i].bool()][replaced_steps-1]).all()
 
-                # orig_encoder_output.last_hidden_state and encoder_kwargs["attention_mask"] are adjusted
+                # now, orig_encoder_output.last_hidden_state and encoder_kwargs["attention_mask"] are adjusted
+
+                self.max_steps_sums.fill_(0)  # reset adjusted sums
+
                 return orig_outputs
 
         orig_encoder = copy.deepcopy(self.encoder.__class__)
