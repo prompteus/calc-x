@@ -38,7 +38,7 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
     chain_str, result = result.split("####")
 
     chain_str = add_missing_dots(chain_str)
-    result = result.strip()
+    result = calc(result.strip().replace(",", "_"))
     calc_re = re.compile(r"<<(.*?)=(.*?)>>", flags=re.MULTILINE)
 
     chain: gadgets.datatypes.Chain = []
