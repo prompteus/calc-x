@@ -113,7 +113,7 @@ valid_size = 100  # TODO Select the first 100 samples for validation
 dataset_to_keys = {
     "Calc-gsm8k": {
         "question_key": "question",
-        "answer_key": "answer",
+        "answer_key": "result",
         "chain_key": "chain",
     },
     "Calc-aqua_rat": {
@@ -126,11 +126,11 @@ dataset_to_keys = {
         "answer_key": "equation",
         "chain_key": "chain",
     },
-    "Calc-math_qa": {
-        "question_key": "problem",
-        "answer_key": "rationale",
-        "chain_key": "chain",
-    },
+    # "Calc-math_qa": {
+    #     "question_key": "problem",
+    #     "answer_key": "rationale",
+    #     "chain_key": "chain",
+    # },
 }
 
 
