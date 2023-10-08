@@ -248,7 +248,7 @@ metrics = gadgets.metrics.MyMetrics(
     tokenizer=tokenizer,
     log_predictions=True,
     log_predictions_indices=log_predictions_indices,
-    datasets_id_length={k: valid_size for k in dataset_to_keys.keys()},
+    datasets_id_length={k: len(preprocessed_datasets[k]['validation']) for k in dataset_to_keys.keys() if k in val_datasets_keys},
     # TODO: ordering and sizes must match eval_dataset
 )
 
