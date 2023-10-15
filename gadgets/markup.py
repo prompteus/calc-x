@@ -83,6 +83,9 @@ def to_model_markup(
         soup.append(result + ".\n")
 
     if not ommit_tags:
+        str_soup = str(soup)
+        if len(str_soup.strip()) > 0 and not str_soup.strip().endswith("\n"):
+            soup.append("\n")
         soup.append(result_to_markup(result))
 
     return soup

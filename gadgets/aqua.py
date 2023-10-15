@@ -4,8 +4,8 @@ import math
 import re
 from typing import Dict
 
-import gadgets.gadget
 import gadgets.datatypes
+import gadgets.gadget
 
 numeric_re = re.compile(r"[^\d\+\-\/\*\=\ \.\,\(\)]", flags=re.MULTILINE)  # same length as original
 equals_re = re.compile(r"=", flags=re.MULTILINE)
@@ -42,16 +42,19 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
     calc = gadgets.gadget.Calculator()
 
     chain_str = sample["rationale"].replace("\n", "   ").strip()
-    correct_str = next(o.replace(sample['correct'] + ")", "").strip()
-                       for o in sample["options"] if sample['correct'] + ")" in o)
+    correct_str = next(
+        o.replace(sample["correct"] + ")", "").strip()
+        for o in sample["options"]
+        if sample["correct"] + ")" in o
+    )
     sent_separator = ". "
 
     last_chain_sentence = chain_str.split(sent_separator)[-1]
     chain_str = sent_separator.join(chain_str.split(sent_separator)[:-1])
-    chain_str += (sent_separator + last_chain_sentence.replace(sample['correct'], correct_str))
+    chain_str += sent_separator + last_chain_sentence.replace(sample["correct"], correct_str)
     if chain_str.startswith(sent_separator):
         # if there is only one sentence in the chain, we truncate the preceding sentence separator
-        chain_str = chain_str[len(sent_separator):]
+        chain_str = chain_str[len(sent_separator) :]
 
     numeric_chain_str = re.sub(numeric_re, " ", chain_str)
 
@@ -61,13 +64,17 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
     eq_positions = [0] + eq_positions + [len(numeric_chain_str)]
 
     for eq_pos_i in range(1, len(eq_positions[1:])):
-        original_left_right_substr = chain_str[eq_positions[eq_pos_i - 1]: eq_positions[eq_pos_i + 1]]
-        chain.append(chain_str[eq_positions[eq_pos_i-1]: eq_positions[eq_pos_i]])
-        if len(chain) > 1 and isinstance(chain[-2], gadgets.datatypes.Interaction) and chain[-1].startswith("="):
+        original_left_right_substr = chain_str[eq_positions[eq_pos_i - 1] : eq_positions[eq_pos_i + 1]]
+        chain.append(chain_str[eq_positions[eq_pos_i - 1] : eq_positions[eq_pos_i]])
+        if (
+            len(chain) > 1
+            and isinstance(chain[-2], gadgets.datatypes.Interaction)
+            and chain[-1].startswith("=")
+        ):
             # for consistency with gsm, we do not follow with "=" if preceding element of chain was gadget call
             chain[-1] = chain[-1][1:].strip()
 
-        eq_left_right_substr = numeric_chain_str[eq_positions[eq_pos_i - 1]: eq_positions[eq_pos_i + 1]]
+        eq_left_right_substr = numeric_chain_str[eq_positions[eq_pos_i - 1] : eq_positions[eq_pos_i + 1]]
         eq_left_right_groups = re.search(calc_input_re, eq_left_right_substr)
         if eq_left_right_groups is None:
             # no "=" -> first or last iteration
@@ -85,7 +92,7 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
 
         gadget_output_from_data = eq_left_right_groups.group(2)
         gadget_output = calc(gadget_input)
-        if 'ERROR: invalid syntax' in gadget_output:
+        if "ERROR: invalid syntax" in gadget_output:
             # not a valid gadget input
             not_matched_eqs += 1
             invalid_calls.append(eq_left_right_substr)
@@ -104,23 +111,29 @@ def parse(sample: Dict[str, str]) -> gadgets.datatypes.Example:
         if math.isclose(expected, actual):
             chain = chain[:-1]
             chain.append(original_left_right_substr.split(gadget_input.strip())[0] + gadget_input)
-            if len(chain) > 1 and isinstance(chain[-2], gadgets.datatypes.Interaction) and chain[-1].startswith("="):
+            if (
+                len(chain) > 1
+                and isinstance(chain[-2], gadgets.datatypes.Interaction)
+                and chain[-1].startswith("=")
+            ):
                 # for consistency with gsm, we do not follow with "=" if preceding element of chain was gadget call
                 chain[-1] = chain[-1][1:].strip()
 
             chain.append("= ")  # for consistency with gsm, "=" always precede gadget calls
-            chain.append(gadgets.datatypes.Interaction(gadget_id="calculator",
-                                                       inputs=gadget_input,
-                                                       outputs=gadget_output))
+            chain.append(
+                gadgets.datatypes.Interaction(
+                    gadget_id="calculator", inputs=gadget_input, outputs=gadget_output
+                )
+            )
             matched_eqs += 1
         else:
             invalid_calls.append(eq_left_right_substr)
 
             not_matched_eqs += 1
 
-    chain.append(chain_str[eq_positions[-2]: eq_positions[-1]])
+    chain.append(chain_str[eq_positions[-2] : eq_positions[-1]])
     if len(chain) > 1 and isinstance(chain[-2], gadgets.datatypes.Interaction) and chain[-1].startswith("="):
         # for consistency with gsm, we do not follow with "=" if preceding element of chain was gadget call
         chain[-1] = chain[-1][1:].strip()
 
-    return gadgets.datatypes.Example(prompt=sample["question"], chain=chain, result=correct_str)
+    return gadgets.datatypes.Example(prompt=sample["question"], chain=chain, result=sample["correct"])
