@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import copy
 import logging
 import warnings
-from copy import deepcopy
 
 import torch
 import transformers
 import bs4
-from typing import Any, Optional, Callable, List, Union
+from typing import Any, Optional, Callable, List, Union, Tuple
 import unittest.mock
 
-from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList
+from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList, T5ForConditionalGeneration
+from transformers.modeling_outputs import Seq2SeqLMOutput
+from transformers.utils import ModelOutput
 
 from gadgets.gadget import Gadget, Calculator
 from gadgets.markup import GADGET_TAG, OUTPUT_TAG, RESULT_TAG
@@ -187,11 +189,6 @@ class GadgetAssist(transformers.GenerationMixin):
                 # replace total_output_str with the evaluated version
                 total_output_str = str(doc)
 
-            width = 80
-            print(" PARTIAL MODEL OUTPUT ".center(width, "="))
-            print(total_output_str)
-            print("=" * width)
-
             output_tensor = self.tokenizer.encode(total_output_str,
                                                   return_tensors="pt",
                                                   add_special_tokens=True).to(self.device)
@@ -275,6 +272,210 @@ class StepwiseGenerator(GadgetAssist):
         return generated_output_ids
 
 
+class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
+
+    @torch.no_grad()
+    def generate(self,
+                 input_ids: Optional[torch.Tensor] = None,
+                 generation_config: Optional[GenerationConfig] = None,
+                 logits_processor: Optional[LogitsProcessorList] = None,
+                 stopping_criteria: Optional[StoppingCriteriaList] = None,
+                 prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+                 synced_gpus: Optional[bool] = None,
+                 streamer: Optional["BaseStreamer"] = None,
+                 **kwargs) -> torch.LongTensor:
+        # PerSentence generators decode outputs per reasoning step (~per sentence).
+        # After each reasoning step, encode newly-generated output and generate the following step.
+        # Once the model generates the <result> tag, terminate.
+        print("Input query: %s" % self.tokenizer.decode(input_ids[0]))
+
+        expected_max_length: Optional[int] = kwargs.get("max_new_tokens", None)  # max_new_tokens takes precendese
+        if expected_max_length is not None:
+            expected_max_length = input_ids.shape[-1] + kwargs["max_new_tokens"]
+        else:
+            expected_max_length = kwargs.get("max_length", None)
+
+        output_step = ""
+        output_ids = None
+        extended_input_ids = input_ids.clone()
+        kwargs["steps_mask"] = torch.zeros_like(input_ids)
+
+        step_i = 0
+
+        # the length of suffix and prefix special tokens differ among models, we assume a single (trailing) <s> token
+        assert len(self.tokenizer(output_step).input_ids) == 1
+
+        # generated output does not contain the result -> encode intermediate output and continue in generation
+        while bs4.BeautifulSoup(output_step, features="html.parser").find(RESULT_TAG) is None:
+            prev_step_ids = self.tokenizer(output_step, return_tensors="pt").input_ids.to(self.device)
+
+            # remove trailing special tokens -- we assume a single trailing token here (asserted above)
+            extended_input_ids = torch.hstack([extended_input_ids[:, :-1], prev_step_ids])
+            kwargs["steps_mask"] = torch.hstack([kwargs["steps_mask"][:, :-1], torch.full_like(prev_step_ids, step_i)])
+
+            if expected_max_length is not None and extended_input_ids.shape[-1] + 2 >= expected_max_length:
+                logger.warning("Generation exceeded given max_length, without generating <result>.")
+                break
+
+            kwargs["attention_mask"] = torch.ones_like(extended_input_ids)  # manually rearrange attention mask
+
+            output_ids = super().generate(extended_input_ids, generation_config, logits_processor, stopping_criteria,
+                                          prefix_allowed_tokens_fn, synced_gpus, streamer, **kwargs)
+
+            output_step = self.tokenizer.batch_decode(output_ids,
+                                                      skip_special_tokens=True,
+                                                      spaces_between_special_tokens=False)[0]  # assumes no batching
+            if not output_step.strip():
+                logger.warning("Generated empty step -> terminating generation to avoid cycling.")
+                break
+
+            print("Output step: %s" % output_step)
+            step_i += 1
+
+        # collect complete generation output and remove the input segment
+        if output_ids is None:
+            return torch.rand((1, 0))
+
+        generated_output_ids = torch.hstack([extended_input_ids[:, :-1], output_ids])
+        generated_output_ids = generated_output_ids[:, input_ids.shape[0] + 1:]  # we assume batch_size==1 here
+
+        return generated_output_ids
+
+    def forward(self,
+                steps_mask: Optional[torch.LongTensor] = None,  # used in training, not used in generation
+                input_ids: Optional[torch.LongTensor] = None,
+                attention_mask: Optional[torch.FloatTensor] = None,
+                decoder_input_ids: Optional[torch.LongTensor] = None,
+                decoder_attention_mask: Optional[torch.BoolTensor] = None,
+                head_mask: Optional[torch.FloatTensor] = None,
+                decoder_head_mask: Optional[torch.FloatTensor] = None,
+                cross_attn_head_mask: Optional[torch.Tensor] = None,
+                encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+                past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+                inputs_embeds: Optional[torch.FloatTensor] = None,
+                decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+                labels: Optional[torch.LongTensor] = None,
+                use_cache: Optional[bool] = None,
+                output_attentions: Optional[bool] = None,
+                output_hidden_states: Optional[bool] = None,
+                return_dict: Optional[bool] = None,
+                ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
+
+        # override of default encoder's forward with the one wrapping the aggregation
+        class StepwiseEncoder(self.encoder.__class__):
+            steps_mask: Optional[torch.LongTensor] = None
+            superclass: Optional[type] = None
+
+            max_batch_size = 32
+            max_input_length = 800
+
+            max_steps_sums = torch.zeros((max_batch_size,
+                                          max_input_length,
+                                          self.config.hidden_size), dtype=torch.float, device=self.device)
+            all_positions = torch.arange(self.config.max_length, device=self.device)
+
+            def forward(self,
+                        steps_mask: Optional[torch.LongTensor] = None,
+                        input_ids=None,
+                        attention_mask=None,
+                        encoder_hidden_states=None,
+                        encoder_attention_mask=None,
+                        inputs_embeds=None,
+                        head_mask=None,
+                        cross_attn_head_mask=None,
+                        past_key_values=None,
+                        use_cache=None,
+                        output_attentions=None,
+                        output_hidden_states=None,
+                        return_dict=None):
+                if steps_mask is not None:
+                    self.steps_mask = steps_mask
+                orig_outputs = self.superclass.forward(self, input_ids, attention_mask, encoder_hidden_states,
+                                                       encoder_attention_mask, inputs_embeds, head_mask,
+                                                       cross_attn_head_mask, past_key_values, use_cache,
+                                                       output_attentions, output_hidden_states, return_dict)
+                # test:
+                # orig_outputs.last_hidden_state = torch.tensor([[[0, 0], [0, 0], [0, 1], [1, 1],
+                #                                                        [2, 2], [2, 2], [0, 1]]], dtype=torch.float)
+                # self.steps_mask = torch.tensor([[0, 1, 1, 1, 2, 2, 0]], dtype=torch.int64)
+                # expected_sum = torch.tensor([[[0, 1], [1, 2], [4, 4]]], dtype=torch.float)
+                # expected_avg = torch.tensor([[[0, 0.5], [0.33, 0.66], [2, 2]]], dtype=torch.float)
+
+                batch_size, input_size, emb_size = orig_outputs.last_hidden_state.shape
+
+                steps_mask_idx = self.steps_mask[:, :input_size].unsqueeze(-1).expand(-1, -1, emb_size).clone()
+                unique_step_idx, idx_count = self.steps_mask.unique(return_counts=True)
+
+                # steps_embeddings_sum = torch.zeros((batch_size,
+                #                                     unique_step_idx.max()+1,  # robust to missing mask values
+                #                                     emb_size), dtype=torch.float, device=steps_mask_idx.device)
+                steps_embeddings_sum = self.max_steps_sums[:batch_size, :unique_step_idx.max()+1, :emb_size]
+
+                steps_embeddings_sum.scatter_add_(dim=1,
+                                                  index=steps_mask_idx,
+                                                  src=orig_outputs.last_hidden_state)
+
+                # test: per-group sum:
+                # assert steps_embeddings_sum.isclose(expected_sum, rtol=2e-2).all()
+
+                # NORMALIZE PER-STEP ENCODINGS
+                num_embs = torch.vstack([(self.steps_mask == val).sum(-1) for val in range(unique_step_idx.max() + 1)]).T
+                # vals_sum is a zero denominator if steps do not contain any embeddings
+                steps_embeddings_sum /= num_embs.unsqueeze(-1).expand(-1, -1, steps_embeddings_sum.size(-1))
+                # drop embeddings of steps containing no embeddings:
+                steps_embeddings_sum[~num_embs.bool()] = 0
+
+                # due to the per-sample counts, this requires for-loop
+                for batch_i in range(batch_size):
+                    # note: sentence-transformers also rescale (clamp) sum mask to min=1e-9 (see models/Pooling.py)
+
+                    # test: the embeddings' averages match the expected
+                    # assert steps_embeddings_sum[batch_i].isclose(expected_avg[batch_i], rtol=2e-2).all()
+
+                    num_steps = sum(num_embs[batch_i].bool())  # number of reasoning steps
+
+                    # Insert the encodings of reasoning steps after the encodings of the input tokens
+                    if (self.steps_mask[batch_i] == 1).any():
+                        # -> argmin reimplementation retrieving first non-input (=stepwise) position among encodings
+                        all_positions = torch.arange(self.steps_mask.size(-1), device=self.steps_mask.device)
+                        steps_begin_pos = all_positions[self.steps_mask[batch_i] == 1].min()
+
+                        # replace with only the non-zero embeddings that fit to the context of existing ones
+                        replaced_steps = min(len(orig_outputs.last_hidden_state[batch_i][steps_begin_pos:]), num_steps)
+                        orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
+                            steps_embeddings_sum[batch_i][num_embs[batch_i].bool()][:replaced_steps]
+
+                        # we keep other encodings as-is, but we hide them with attention mask
+                        attention_mask[batch_i][:steps_begin_pos + num_steps] = 1
+                        attention_mask[batch_i][steps_begin_pos + num_steps:] = 0
+                        # assert that the last attended position contains encoding of last reasoning step
+                        # exclude from test
+                        assert (orig_outputs.last_hidden_state[batch_i][attention_mask[batch_i].bool()][-1] ==
+                                steps_embeddings_sum[batch_i][num_embs[batch_i].bool()][replaced_steps-1]).all()
+
+                # now, orig_encoder_output.last_hidden_state and encoder_kwargs["attention_mask"] are adjusted
+
+                self.max_steps_sums.fill_(0)  # reset adjusted sums
+
+                return orig_outputs
+
+        orig_encoder = copy.deepcopy(self.encoder.__class__)
+        self.encoder.__class__ = StepwiseEncoder
+        if self.encoder.superclass is None:
+            self.encoder.superclass = orig_encoder
+        if steps_mask is not None:
+            self.encoder.steps_mask = steps_mask
+
+        # print("Superclass method: %s" % str(super().forward))
+        # lm_output: ModelOutput = super(self.__class__, self).forward(self, *args, **kwargs)
+        lm_output: ModelOutput = super().forward(input_ids, attention_mask, decoder_input_ids, decoder_attention_mask,
+                                                 head_mask, decoder_head_mask, cross_attn_head_mask, encoder_outputs,
+                                                 past_key_values, inputs_embeds, decoder_inputs_embeds, labels,
+                                                 use_cache, output_attentions, output_hidden_states, return_dict)
+        lm_output.loss = lm_output.loss  # TODO: perspectively, regularize the steps encodings
+        return lm_output
+
+
 def gadget_assisted_model(model_class: transformers.PreTrainedModel):
     class GadgetAssistedModel(GadgetAssist, model_class):
         pass
@@ -287,6 +488,16 @@ def stepwise_gadget_model(model_class: transformers.PreTrainedModel):
         pass
 
     return StepwiseGeneratorModel
+
+
+def stepwise_compressed_gadget_model(model_class: Optional[transformers.PreTrainedModel] = None):
+    # class StepwiseGeneratorModel(StepwiseGenerator):
+    #
+    #     def __init__(self, config: PretrainedConfig, *inputs, **kwargs):
+    #         super().__init__(config, *inputs, **kwargs)
+    #         self.superclass = model_class
+
+    return CompressedStepwiseGenerator
 
 
 str_prompt = "Write xml tag gadget id attribute id='calculator' and fill '2 + 2' inside. "

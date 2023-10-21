@@ -20,9 +20,9 @@ import gadgets
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-# model_name = "google/flan-t5-small"  # TODO
+model_name = "google/flan-t5-small"  # TODO
 # model_name = "google/t5-v1_1-xl"
-model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
+# model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
 
 log_path = "logs/"
 wandb.init(
@@ -77,27 +77,30 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
 train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat"]
 val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k", "Calc-math_qa", "Calc-aqua_rat"]
 
+train_datasets_keys = ["Calc-gsm8k"]  # TODO: remove
+val_datasets_keys = ["Calc-gsm8k"]
+
 dataset_to_keys = {
     "Calc-gsm8k": {
         "question_key": "question",
-        "answer_key": "answer",
+        "answer_key": "result",
         "chain_key": "chain",
     },
-    "Calc-ape210k": {
-        "question_key": "question_english_mt",
-        "answer_key": "equation",
-        "chain_key": "chain",
-    },
-    "Calc-math_qa": {
-        "question_key": "problem",
-        "answer_key": "rationale",
-        "chain_key": "chain",
-    },
-    "Calc-aqua_rat": {
-        "question_key": "question",
-        "answer_key": "rationale",
-        "chain_key": "chain",
-    },
+    # "Calc-ape210k": {
+    #     "question_key": "question_english_mt",
+    #     "answer_key": "equation",
+    #     "chain_key": "chain",
+    # },
+    # "Calc-math_qa": {
+    #     "question_key": "problem",
+    #     "answer_key": "rationale",
+    #     "chain_key": "chain",
+    # },
+    # "Calc-aqua_rat": {
+    #     "question_key": "question",
+    #     "answer_key": "rationale",
+    #     "chain_key": "chain",
+    # },
 }
 
 
@@ -125,15 +128,15 @@ def map_flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, a
 
 # tokenize and preprocess datasets for training
 preprocessed_datasets = {}
-ds_to_lens = {}
-for dset_name, keys in dataset_to_keys.items():
-    preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
+keys = {"question_key": "question", "answer_key": "result", "chain_key": "chain"}
+
+for dset_name in set(train_datasets_keys + val_datasets_keys):
     dataset = datasets.load_dataset(f"MU-NLPC/{dset_name}")
 
     if dset_name in train_datasets_keys:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        # dataset["train"] = dataset["train"].select(range(20))  # TODO: for debug only
+        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -141,9 +144,18 @@ for dset_name, keys in dataset_to_keys.items():
         dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
     else:
         print("Omitting dataset %s from training" % dset_name)
-    # encoding -> all datasets
-    dataset = dataset.map(preprocessing_fn)
+        del dataset["train"]
+
+    if dset_name not in val_datasets_keys and "validation" in dataset.keys():
+        del dataset["validation"]
+
+    # del dataset["test"]
+
     preprocessed_datasets[dset_name] = dataset
+
+# encoding -> all datasets
+preprocessed_datasets = {k: dataset.map(preprocessing_factory(tokenizer=tokenizer, **keys))
+                         for k, dataset in preprocessed_datasets.items()}
 
 # Fixing validation error on too-long incomplete chain without closing > tag
 # + filtering the same problem on training data, removes small amount of samples
@@ -184,18 +196,19 @@ for dset_name, dataset in preprocessed_datasets.items():
     if dset_name not in val_datasets_keys:
         print("Omitting dataset %s from validation" % dset_name)
         continue
-    preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(valid_size))
+    if len(preprocessed_datasets[dset_name]["validation"]) > valid_size:
+        preprocessed_datasets[dset_name]["validation"] = dataset["validation"].select(range(valid_size))
 
 # Dropping columns so we can merge datasets
-columns_to_keep = ["question", "answer", "input_ids", "attention_mask", "labels", "chain"]
+columns_to_keep = ["input_ids", "attention_mask", "labels"]
 for dset_name, dataset in preprocessed_datasets.items():
     for split_name, split_dset in dataset.items():
         columns_to_remove = [column for column in split_dset.column_names if column not in columns_to_keep]
         dataset[split_name] = split_dset.remove_columns(columns_to_remove)
 
 # concating datasets
-train_ds = concatenate_datasets([dset["train"] for dset in preprocessed_datasets.values()])
-valid_ds = concatenate_datasets([dset["validation"] for dset in preprocessed_datasets.values()])
+train_ds = concatenate_datasets([d["train"] for k, d in preprocessed_datasets.items() if k in train_datasets_keys])
+valid_ds = concatenate_datasets([d["validation"] for k, d in preprocessed_datasets.items() if k in val_datasets_keys])
 test_ds = concatenate_datasets([dset["test"] for dset in preprocessed_datasets.values()])  # NOT USED
 
 train_ds.shuffle()
@@ -207,7 +220,7 @@ metrics = gadgets.metrics.MyMetrics(
     tokenizer=tokenizer,
     log_predictions=True,
     log_predictions_indices=log_predictions_indices,
-    datasets_id_length={k: valid_size for k in dataset_to_keys.keys()},
+    datasets_id_length={k: len(preprocessed_datasets[k]['validation']) for k in val_datasets_keys if k in val_datasets_keys},
     # TODO: ordering and sizes must match eval_dataset
 )
 
@@ -219,15 +232,15 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=100_000,
-    per_device_train_batch_size=2,  # TODO
-    gradient_accumulation_steps=16,  # TODO
+    per_device_train_batch_size=1,  # TODO
+    gradient_accumulation_steps=1,  # TODO
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=400,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=4000,  # TODO
+    logging_steps=1,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    eval_steps=1,  # TODO
     save_steps=4000,
     evaluation_strategy="steps",
-    bf16=True,
+    # bf16=True,  # TODO
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
@@ -236,6 +249,8 @@ training_args = transformers.Seq2SeqTrainingArguments(
     greater_is_better=True,
     load_best_model_at_end=True,
     save_total_limit=10,
+    no_cuda=True,  # TODO: remove
+    remove_unused_columns=False,
 )
 
 trainer = transformers.Seq2SeqTrainer(

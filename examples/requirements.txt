@@ -1,0 +1,2 @@
+"git+https://github.com/OpenBioLink/ThoughtSource.git#egg=cot&subdirectory=libs/cot"
+datasets==2.13.1
