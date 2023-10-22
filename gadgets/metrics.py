@@ -86,7 +86,9 @@ class MyMetrics:
             for pred, true in zip(preds_str, trues_str):
                 pred_chain, pred_result = gadgets.markup.from_model_markup(pred)
                 true_chain, true_result = gadgets.markup.from_model_markup(true)
-                assert true_result is not None, true_chain
+                print("Pred result: %s" % pred_result)
+                print("True result: %s" % true_result)
+                assert true_chain is not None, true_chain
                 pred_result = "" if pred_result is None else pred_result
                 true_result = "" if true_result is None else true_result
                 correct_results.append(are_numeric_results_same(pred_result, true_result))

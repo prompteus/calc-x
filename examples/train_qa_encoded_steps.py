@@ -92,11 +92,14 @@ def apply_template(question: str, options: List[str]) -> str:
         return "%s... Options: %s. " % (question, ", ".join(options))
 
 
+def tagged_answer(answer_str: str) -> str:
+    return "The answer is <%s>%s</%s>." % (gadgets.markup.RESULT_TAG, answer_str, gadgets.markup.RESULT_TAG)
+
+
 # see https://discuss.huggingface.co/t/making-multiple-samples-from-single-samples-using-huggingface-datasets/6819
 def flatten_sample_per_step(x: Dataset, question_key: str,
                             chain_key: str, answer_key: str) -> Iterator[dict[str, List[str]]]:
-    steps = x[chain_key] + ["The answer is <%s>%s</%s>."
-                            % (gadgets.markup.RESULT_TAG, x[answer_key][0], gadgets.markup.RESULT_TAG)]
+    steps = x[chain_key] + [tagged_answer(x[answer_key][0])]
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
@@ -143,7 +146,10 @@ for dset_name in all_datasets:
         del dataset["train"]
 
     if dset_name in val_datasets:
-        dataset["validation"] = dataset["validation"].map(lambda row: {keys["chain_key"]: " ".join(row[keys["chain_key"]])})
+        dataset["validation"] = dataset["validation"].map(
+            lambda row: {keys["chain_key"]: " ".join(row[keys["chain_key"]] + [tagged_answer(row[keys["answer_key"]][0])])}
+        )
+
     elif dset_name not in val_datasets and "validation" in dataset.keys():
         del dataset["validation"]
 
@@ -236,7 +242,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     greater_is_better=True,
     load_best_model_at_end=True,
     save_total_limit=6,
-    no_cuda=True,  # TODO: remove
+    # use_cpu=True,  # TODO: remove
     remove_unused_columns=False,
 )
 
