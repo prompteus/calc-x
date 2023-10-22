@@ -21,9 +21,9 @@ import gadgets
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-model_name = "google/flan-t5-small"  # TODO
+# model_name = "google/flan-t5-small"  # TODO
 # model_name = "google/t5-v1_1-xl"
-# model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
+model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
 
 log_path = "logs/"
 wandb.init(
@@ -78,8 +78,8 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
 train_datasets = ["commonsense_qa", "strategy_qa", "worldtree", "open_book_qa"]
 val_datasets = ["commonsense_qa", "worldtree", "open_book_qa"]
 
-train_datasets = ["commonsense_qa"]  # TODO: remove
-val_datasets = ["commonsense_qa"]
+# train_datasets = ["commonsense_qa"]  # TODO: remove
+# val_datasets = ["commonsense_qa"]
 valid_size = 100
 
 
@@ -93,9 +93,10 @@ def apply_template(question: str, options: List[str]) -> str:
 
 
 # see https://discuss.huggingface.co/t/making-multiple-samples-from-single-samples-using-huggingface-datasets/6819
-def flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str,
-                            answer_key: str, sep: str = ". ") -> Iterator[dict[str, List[str]]]:
-    steps = x[chain_key]
+def flatten_sample_per_step(x: Dataset, question_key: str,
+                            chain_key: str, answer_key: str) -> Iterator[dict[str, List[str]]]:
+    steps = x[chain_key] + ["The answer is <%s>%s</%s>."
+                            % (gadgets.markup.RESULT_TAG, x[answer_key][0], gadgets.markup.RESULT_TAG)]
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
@@ -119,6 +120,11 @@ keys = {"question_key": "question", "answer_key": "answer", "chain_key": "cot"}
 
 collection = Collection(all_datasets, generate_mode="recache")
 
+# push to hub, to avoid using cot library:
+# datasets.DatasetDict({"train": collection.all_train,
+#                       "validation": collection.all_validation,
+#                       "test": collection.all_test}
+#                       ).push_to_hub("cot-commonsense-qa", token="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")
 for dset_name in all_datasets:
     dataset = collection[dset_name]
     dataset = dataset.map(lambda row: {keys["question_key"]: apply_template(row[keys["question_key"]], row["choices"])})
@@ -126,7 +132,7 @@ for dset_name in all_datasets:
     if dset_name in train_datasets:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
+        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -208,17 +214,17 @@ metrics = gadgets.metrics.MyMetrics(
 training_args = transformers.Seq2SeqTrainingArguments(
     output_dir="./logs/" + wandb.run.name,  # TODO add
     # output_dir="./logs/",
-    learning_rate=5e-5,
+    learning_rate=2e-5,
     do_train=True,
     do_eval=True,
     warmup_steps=1000,
-    max_steps=100_000,
-    per_device_train_batch_size=1,  # TODO
-    gradient_accumulation_steps=1,  # TODO
+    max_steps=20_000,
+    per_device_train_batch_size=4,  # TODO
+    gradient_accumulation_steps=9,  # TODO
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=1,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=1,  # TODO
+    logging_steps=400,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    eval_steps=4000,  # TODO
     save_steps=4000,
     evaluation_strategy="steps",
     # bf16=True,  # TODO
@@ -229,7 +235,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     metric_for_best_model="avg_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=10,
+    save_total_limit=6,
     no_cuda=True,  # TODO: remove
     remove_unused_columns=False,
 )
@@ -242,7 +248,7 @@ trainer = transformers.Seq2SeqTrainer(
     tokenizer=tokenizer,
     data_collator=data_collator,
     compute_metrics=metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=6)],
 )
 trainer.train()  # TODO: resume_from_checkpoint?
 # TODO: we implement evaluation based on exact-match separately
