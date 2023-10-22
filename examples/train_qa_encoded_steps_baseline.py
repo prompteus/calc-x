@@ -136,14 +136,10 @@ for dset_name in all_datasets:
     dataset = dataset.map(lambda row: {keys["question_key"]: apply_template(row[keys["question_key"]], row["choices"])})
 
     if dset_name in train_datasets:
-        # we apply per-step flattening on only train datasets
-        # for simplicity, flatten_sample_per_step requires batch_size=1
-        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
-        augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
-        flattened_dataset = itertools.chain(*augmented_dataset)
-        dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
-        # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
-        dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
+        # no per-step flattening
+        dataset["train"] = dataset["train"].map(
+            lambda row: {keys["chain_key"]: " ".join(row[keys["chain_key"]] + [tagged_answer(row[keys["answer_key"]][0])])}
+        )
     else:
         print("Omitting dataset %s from training" % dset_name)
         del dataset["train"]
