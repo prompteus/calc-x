@@ -63,25 +63,15 @@ model = model.eval().to("cuda")
 
 dataset = datasets.load_dataset(args.dataset, split=args.split)
 dataset_name = args.dataset.split("/")[-1]
-question_key = dataset_to_keys[dataset_name]["question_key"]
-answer_key = dataset_to_keys[dataset_name]["answer_key"]
 
-if args.use_gadgets:
-    dataset = dataset.map(
-        lambda example: {
-            "input_ids": tokenizer(example[question_key]).input_ids,
-            "question": example[question_key],
-            "answer": example[answer_key],
-        },
-        remove_columns=[question_key, answer_key],
-    )
-else:
-    keys = dataset_to_keys[dataset_name]
-    preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
-    labeler_fn = labeling_factory(tokenizer, dataset_to_labeler[dataset_name], question_key)
-    dataset = dataset.map(preprocessing_fn)
-    dataset = dataset.map(labeler_fn)
-    dataset = dataset.filter(lambda example: example["labels"] is not None)
+dataset = dataset.map(
+    lambda example: {
+        "input_ids": tokenizer(example["question"]).input_ids,
+        "question": example["question"],
+        "answer": example["chain"],
+    },
+    remove_columns=["question", "chain"],
+)
 
 if args.first_n > 0:
     dataset = dataset.select(range(min(args.first_n, len(dataset))))

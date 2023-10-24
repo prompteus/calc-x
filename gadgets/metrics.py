@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import re
+import string
 from typing import Dict, Iterable
 
 import evaluate
@@ -13,7 +15,35 @@ import gadgets.markup
 import wandb
 
 
-def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> bool:
+def normalize_option(option: str) -> str:
+    """
+    >>> normalize_option("  (A)  \n")
+    'A'
+    """
+    return re.sub(r"(\s+|\(|\))", "", option)
+
+def is_option_result(result: str) -> bool:
+    """
+    >>> is_option_result("  A)  \n")
+    True
+    >>> is_option_result("  23/7 ")
+    False
+    """
+    return normalize_option(result) in list(string.ascii_letters)
+
+
+def are_numeric_results_same(pred: str, true: str, rel_tol: float = 1e-2) -> bool:
+    pred = str(pred)
+    true = str(true)
+    
+    if is_option_result(true):
+        # The task is to select correct option
+        true = normalize_option(true)
+        pred = normalize_option(pred)
+        return pred == true
+    
+    # The task is to calculate the result as a number
+
     if pred.strip() == true.strip():
         return True
 
@@ -21,7 +51,7 @@ def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> boo
     try:
         pred_float = calculator._float_eval(pred)
         true_float = calculator._float_eval(true)
-        return math.isclose(pred_float, true_float, abs_tol=abs_tol)
+        return math.isclose(pred_float, true_float, rel_tol=rel_tol)
     except:
         pass
 
