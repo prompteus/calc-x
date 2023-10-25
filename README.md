@@ -1,4 +1,4 @@
-# Gadget-assisted Language Models
+# Calc-X and Calcformers
 
 This repo contains dataset builders, training scripts 
 and inference wrappers for training and using 
