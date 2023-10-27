@@ -225,11 +225,13 @@ class StepwiseGenerator(GadgetAssist):
         # PerSentence generators decode outputs per reasoning step (~per sentence).
         # After each reasoning step, encode newly-generated output and generate the following step.
         # Once the model generates the <result> tag, terminate.
-        expected_max_length: Optional[int] = kwargs.get("max_new_tokens", None)  # max_new_tokens takes precendese
+        expected_max_length: Optional[int] = kwargs.get("max_new_tokens", None)  # max_new_tokens takes precendece
         if expected_max_length is not None:
             expected_max_length = input_ids.shape[-1] + kwargs["max_new_tokens"]
+        elif kwargs.get("max_length", None) is not None:
+            expected_max_length = kwargs["max_length"]
         else:
-            expected_max_length = kwargs.get("max_length", None)
+            expected_max_length = self.default_max_tokens
 
         output_step = ""
         output_ids = None
