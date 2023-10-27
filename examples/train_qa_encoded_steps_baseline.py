@@ -15,6 +15,7 @@ from transformers import EarlyStoppingCallback
 from cot import Collection
 
 import gadgets
+from examples.qa_utils import apply_template, tagged_answer
 
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
@@ -88,17 +89,6 @@ valid_size = 100
 all_datasets = list(set(train_datasets + val_datasets))
 
 
-def apply_template(question: str, options: List[str]) -> str:
-    if question.endswith("?"):
-        return "%s Options: %s. " % (question, ", ".join(options))
-    else:
-        return "%s... Options: %s. " % (question, ", ".join(options))
-
-
-def tagged_answer(answer_str: str) -> str:
-    return "The answer is <%s>%s</%s>." % (gadgets.markup.RESULT_TAG, answer_str, gadgets.markup.RESULT_TAG)
-
-
 # see https://discuss.huggingface.co/t/making-multiple-samples-from-single-samples-using-huggingface-datasets/6819
 def flatten_sample_per_step(x: Dataset, question_key: str,
                             chain_key: str, answer_key: str) -> Iterator[dict[str, List[str]]]:
@@ -111,13 +101,6 @@ def flatten_sample_per_step(x: Dataset, question_key: str,
     chains = [step for i, step in enumerate(steps) if valid_prediction_steps[i]]
     for question, target in zip(questions, chains):
         yield {question_key: question, chain_key: target, answer_key: x[answer_key][0]}
-
-
-def map_flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answer_key: str, sep: str = "\n") -> dict[str, List[str]]:
-    steps = x[chain_key][0].split(sep)
-    return {question_key: ["".join((x[question_key][0], " ", sep.join(steps[:i]))) for i in range(0, len(steps))],
-            chain_key: [step.strip() for step in steps],
-            answer_key: [x[answer_key][0]] * len(steps)}
 
 
 # tokenize and preprocess datasets for training
