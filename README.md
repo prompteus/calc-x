@@ -3,7 +3,10 @@
 This repo contains dataset builders, training scripts, and inference wrappers for training and using Calcformers, models capable of using a calculator during inference.
 This is the official repository for the EMNLP 2023 paper: [Calc-X and Calcformers: Empowering Arithmetical Chain-of-Thought through Interaction with Symbolic Systems](https://arxiv.org/abs/2305.15017)
 
-You can access the datasets and the trained models on HuggingFace: [Calc-X dataset collection](https://huggingface.co/collections/MU-NLPC/calc-x-652fee9a6b838fd820055483) and [Calcformer models collection](https://huggingface.co/collections/MU-NLPC/calcformers-65367392badc497807b3caf5).
+You can access the datasets and the trained models on HuggingFace:
+
+- [Calc-X dataset collection](https://huggingface.co/collections/MU-NLPC/calc-x-652fee9a6b838fd820055483)
+- [Calcformer models collection](https://huggingface.co/collections/MU-NLPC/calcformers-65367392badc497807b3caf5).
 
 
 
