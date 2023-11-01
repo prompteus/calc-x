@@ -127,14 +127,14 @@ class GadgetAssistedModel:
             if min_tokens is not None:
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
-            decoder_input_ids = torch.cat([
-                torch.tensor(self.config.decoder_start_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
-                total_output_encoded
-            ], dim=-1)
-
             model_output: transformers.utils.ModelOutput
 
             if self.architecture_style == 'encoder-decoder':
+                decoder_input_ids = torch.cat([
+                  torch.tensor(self.config.decoder_start_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
+                  total_output_encoded
+                ], dim=-1)
+                
                 model_output = super().generate(input_ids=input_ids,
                                                 stopping_criteria=stopping_criteria,
                                                 decoder_input_ids=decoder_input_ids,
@@ -143,7 +143,7 @@ class GadgetAssistedModel:
             elif self.architecture_style == 'decoder-only':
                 model_output = super().generate(input_ids=input_ids,
                                                 stopping_criteria=stopping_criteria
-                                                **kwargs)[0]
+                                              )[0]
 
             # model.generate() outputs starts with decoder_input_ids
             total_output_str = self.tokenizer.decode(model_output,
