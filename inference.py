@@ -1,9 +1,11 @@
+import os
 from argparse import ArgumentParser
 
+from dotenv import load_dotenv
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    LlamaModelForCausalLM,
+    LlamaForCausalLM,
     LlamaTokenizer,
     T5ForConditionalGeneration,
     T5Tokenizer,
@@ -11,6 +13,9 @@ from transformers import (
 
 from gadgets.gadget import Calculator
 from gadgets.gadget_assisted_model import GadgetAssistedModel
+
+# Load environment variables and secret keys
+load_dotenv('env')
 
 parser = ArgumentParser()
 parser.add_argument('model_type', default='encoder-decoder') # Can also be decoder-only
@@ -21,7 +26,7 @@ class GadgetAssistedT5(GadgetAssistedModel, T5ForConditionalGeneration):
     # GadgetAssistedModel overrides the standard generate() from transformers
     pass
 
-class GadgetAssistedLlama(GadgetAssistedModel, LlamaModelForCausalLM):
+class GadgetAssistedLlama(GadgetAssistedModel, LlamaForCausalLM):
     # GadgetAssistedModel overrides the standard generate() from transformers
     pass
 
@@ -34,10 +39,7 @@ if args.model_type == 'encoder-decoder':
     model = GadgetAssistedT5.from_pretrained(t5_model_id)
     tokenizer = T5Tokenizer.from_pretrained(t5_model_id)
 
-# TODO Use .env for local
-from google.colab import userdata
-
-hf_auth = userdata.get('hf_auth')
+hf_auth = os.getenv('HF_AUTH')
 
 if args.model_type == 'decoder-only':
     model = GadgetAssistedLlama.from_pretrained(llama_model_id,
