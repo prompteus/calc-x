@@ -28,7 +28,7 @@ log_path = "logs/"
 wandb.init(
     entity="transformersclub",
     project="gadgets",
-    tags=[model_name, "calculator", "gsm8k", "aqua", "supervised"],  # TODO
+    tags=["calculator", "gsm8k", "aqua", "supervised"],  # TODO
     group="calculator-gsm8k-aqua-supervised",
     dir=log_path,
 )
@@ -75,7 +75,7 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
 
 
 train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat"]
-val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k", "Calc-math_qa", "Calc-aqua_rat"]
+val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k", "Calc-aqua_rat"]
 
 train_datasets_keys = ["Calc-gsm8k"]  # TODO: remove
 val_datasets_keys = ["Calc-gsm8k"]
@@ -232,12 +232,12 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=100_000,
-    per_device_train_batch_size=1,  # TODO
-    gradient_accumulation_steps=1,  # TODO
+    per_device_train_batch_size=9,  # TODO
+    gradient_accumulation_steps=4,  # TODO
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=1,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=1,  # TODO
+    logging_steps=400,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    eval_steps=4000,  # TODO
     save_steps=4000,
     evaluation_strategy="steps",
     # bf16=True,  # TODO
@@ -248,8 +248,8 @@ training_args = transformers.Seq2SeqTrainingArguments(
     metric_for_best_model="avg_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=10,
-    no_cuda=True,  # TODO: remove
+    save_total_limit=6,
+    # use_cpu=True,  # TODO: remove
     remove_unused_columns=False,
 )
 
