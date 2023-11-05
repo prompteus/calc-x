@@ -1,14 +1,15 @@
-# Gadget-assisted Language Models
+# Calc-X and Calcformers
 
-This repo contains dataset builders, training scripts 
-and inference wrappers for training and using 
-Tool-assisted Language Models.
+This is the official repository for the EMNLP 2023 paper: [Calc-X and Calcformers: Empowering Arithmetical Chain-of-Thought through Interaction with Symbolic Systems](https://arxiv.org/abs/2305.15017).
+You can access the datasets and the trained models on HuggingFace:
 
-The training scripts including dataset curation can be found
-in `examples` (in progress).
+- [Calc-X dataset collection](https://huggingface.co/collections/MU-NLPC/calc-x-652fee9a6b838fd820055483)
+- [Calcformer models collection](https://huggingface.co/collections/MU-NLPC/calcformers-65367392badc497807b3caf5)
+
+This repo contains dataset builders, training scripts, and inference wrappers for training and using Calcformers, models capable of using a calculator during inference.
 
 
-## Create environment
+## Create the environment
 
 First, clone the repo. Then run:
 
@@ -18,8 +19,8 @@ pip install poetry
 poetry install 
 ```
 
-This installs all dependencies in exact same versions used by authors of the repo.
-In case you encounter any issues on your hardware (e.g. with CUDA version, platform, etc.),
+This installs all dependencies in exact same versions used by the authors of the repo.
+In case you encounter any issues on your hardware (e.g., with CUDA version, platform, etc.),
 you can resolve the dependencies yourself:
 
 ```shell
@@ -39,7 +40,7 @@ make sure that the tokenizer is able to encode the instruction
 HTML tags used in calling the gadget calls.
 
 Using our pre-trained models (with the tokenizer resolved),
-you can use the model using calculator gadget as follows.
+you can use the model using a calculator gadget as follows.
 
 ```python
 from transformers import T5ForConditionalGeneration, T5Tokenizer
@@ -76,4 +77,21 @@ tokenizer.decode(output_ids[0], spaces_between_special_tokens=False)
 #  Final result is<result>800</result></s>'
 ```
 
+
+## Cite
+
+If you find this project useful in your research, please cite the [Calc-X and Calcformers paper](https://arxiv.org/abs/2305.15017) as follows:
+
+```bibtex
+@inproceedings{kadlcik-etal-2023-soft,
+    title = "Calc-X and Calcformers: Empowering Arithmetical Chain-of-Thought through Interaction with Symbolic Systems",
+    author = "Marek Kadlčík and Michal Štefánik and Ondřej Sotolář and Vlastimil Martinek",
+    booktitle = "Proceedings of the The 2023 Conference on Empirical Methods in Natural Language Processing: Main track",
+    month = dec,
+    year = "2023",
+    address = "Singapore, Singapore",
+    publisher = "Association for Computational Linguistics",
+    url = "https://arxiv.org/abs/2305.15017",
+}
+```
 
