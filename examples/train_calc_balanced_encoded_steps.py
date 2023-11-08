@@ -22,7 +22,7 @@ for i in range(torch.cuda.device_count()):
 
 model_name = "google/flan-t5-small"  # TODO
 # model_name = "google/t5-v1_1-xl"
-# model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
+model_name = "trained_models/wild-butterfly-223-cont_teabreac-pretraining-ch160k"
 
 log_path = "logs/"
 wandb.init(
@@ -77,31 +77,8 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
 train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat"]
 val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k", "Calc-aqua_rat"]
 
-train_datasets_keys = ["Calc-gsm8k"]  # TODO: remove
-val_datasets_keys = ["Calc-gsm8k"]
-
-dataset_to_keys = {
-    "Calc-gsm8k": {
-        "question_key": "question",
-        "answer_key": "result",
-        "chain_key": "chain",
-    },
-    # "Calc-ape210k": {
-    #     "question_key": "question_english_mt",
-    #     "answer_key": "equation",
-    #     "chain_key": "chain",
-    # },
-    # "Calc-math_qa": {
-    #     "question_key": "problem",
-    #     "answer_key": "rationale",
-    #     "chain_key": "chain",
-    # },
-    # "Calc-aqua_rat": {
-    #     "question_key": "question",
-    #     "answer_key": "rationale",
-    #     "chain_key": "chain",
-    # },
-}
+# train_datasets_keys = ["Calc-gsm8k"]  # TODO: remove
+# val_datasets_keys = ["Calc-gsm8k"]
 
 
 # see https://discuss.huggingface.co/t/making-multiple-samples-from-single-samples-using-huggingface-datasets/6819
@@ -136,7 +113,7 @@ for dset_name in set(train_datasets_keys + val_datasets_keys):
     if dset_name in train_datasets_keys:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
+        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -164,11 +141,13 @@ for dset_name, dataset in preprocessed_datasets.items():
     for split, subdset in dataset.items():
         preprocessed_datasets[dset_name][split] = subdset.filter(lambda row: len(row["chain"]) < longest_allowed_chain)
 
-# Upsample datasets to the length of the largest dataset
-dset_to_length = {dset_name: len(dset["train"]) for dset_name, dset in preprocessed_datasets.items()}
+# Balancing of training datasets: Upsample datasets to the length of the largest dataset
+dset_to_length = {dset_name: len(preprocessed_datasets[dset_name]["train"]) for dset_name in train_datasets_keys}
 largest_dset_length = max(dset_to_length.values())
 extended_datasets = {}
 for dset_name, dataset in preprocessed_datasets.items():
+    if dset_name not in train_datasets_keys:
+        continue
     dataset_to_extend = dataset["train"]
     dset_len = len(dataset_to_extend)
     num_extra_samples = largest_dset_length - dset_len
@@ -177,7 +156,7 @@ for dset_name, dataset in preprocessed_datasets.items():
     extended_dataset = concatenate_datasets([dataset_to_extend, extra_dataset])
     preprocessed_datasets[dset_name]["train"] = extended_dataset
 
-dset_lengths = [len(dset["train"]) for dset in preprocessed_datasets.values()]
+dset_lengths = [len(dset["train"]) for dset in preprocessed_datasets.values() if "train" in dset.keys()]
 # Check if all train dsets have the same size
 assert all(x == dset_lengths[0] for x in dset_lengths)
 
@@ -206,10 +185,10 @@ for dset_name, dataset in preprocessed_datasets.items():
         columns_to_remove = [column for column in split_dset.column_names if column not in columns_to_keep]
         dataset[split_name] = split_dset.remove_columns(columns_to_remove)
 
-# concating datasets
+# concatenating datasets
 train_ds = concatenate_datasets([d["train"] for k, d in preprocessed_datasets.items() if k in train_datasets_keys])
 valid_ds = concatenate_datasets([d["validation"] for k, d in preprocessed_datasets.items() if k in val_datasets_keys])
-test_ds = concatenate_datasets([dset["test"] for dset in preprocessed_datasets.values()])  # NOT USED
+# test_ds = concatenate_datasets([dset["test"] for dset in preprocessed_datasets.values()])  # NOT USED
 
 train_ds.shuffle()
 
@@ -261,7 +240,7 @@ trainer = transformers.Seq2SeqTrainer(
     tokenizer=tokenizer,
     data_collator=data_collator,
     compute_metrics=metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=6)],
 )
 trainer.train()  # TODO: resume_from_checkpoint?
-trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")
+# trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")

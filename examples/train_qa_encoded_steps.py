@@ -22,9 +22,11 @@ from examples.qa_utils import apply_template, tagged_answer
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-# model_name = "google/flan-t5-small"  # TODO
+model_name = "google/flan-t5-small"  # TODO
 # model_name = "google/t5-v1_1-xl"
-model_name = "trained_models/likely-dragon-149-ch18000"  # pretrained T5-memory-Large on apollo
+
+# pretrained T5-memory-Large on apollo:
+# model_name = "trained_models/likely-dragon-149-ch18000-perstep_encoding-sole_pretraining"
 
 log_path = "logs/"
 wandb.init(
@@ -115,7 +117,7 @@ for dset_name in all_datasets:
     if dset_name in train_datasets:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
+        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -205,13 +207,13 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=20_000,
-    per_device_train_batch_size=4,  # TODO
-    gradient_accumulation_steps=9,  # TODO
+    per_device_train_batch_size=1,  # TODO
+    gradient_accumulation_steps=1,  # TODO
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
     logging_steps=400,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=4000,  # TODO
-    save_steps=4000,
+    eval_steps=1,  # TODO
+    save_steps=1,
     evaluation_strategy="steps",
     # bf16=True,  # TODO
     predict_with_generate=True,
