@@ -63,7 +63,7 @@ def split_by_all(chain: str, ) -> list[str]:
 
 
 for dataset_id in args.datasets.split(","):
-    dataset = datasets.load_dataset(args.dataset, split=args.split)
+    dataset = datasets.load_dataset(dataset_id, split=args.split)
 
     dataset = dataset.map(lambda example: {"input_ids": tokenizer(example["question"]).input_ids,
                                            "question": example["question"],
