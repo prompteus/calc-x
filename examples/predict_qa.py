@@ -62,7 +62,7 @@ for dataset_id in args.datasets.split(","):
         dataset = dataset.select(range(min(args.first_n, len(dataset))))
 
     if len(args.datasets.split(",")) > 1:
-        out_file = args.output_jsonl_prefix.split(".jsonl")[0] + "-" + dataset_id + ".jsonl"
+        out_file = args.output_jsonl_prefix.split(".jsonl")[0] + "-" + dataset_id.split("/")[-1] + ".jsonl"
     else:
         out_file = args.output_jsonl_prefix
 

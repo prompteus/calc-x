@@ -72,6 +72,11 @@ for dataset_id in args.datasets.split(","):
     if args.first_n > 0:
         dataset = dataset.select(range(min(args.first_n, len(dataset))))
 
+    if len(args.datasets.split(",")) > 1:
+        out_file = args.output_jsonl_prefix.split(".jsonl")[0] + "-" + dataset_id.split("/")[-1] + ".jsonl"
+    else:
+        out_file = args.output_jsonl_prefix
+
     with (torch.autocast(device_type="cuda", dtype=torch.bfloat16),
           torch.no_grad(),
           open(args.output_jsonl, "w") as output_file):
