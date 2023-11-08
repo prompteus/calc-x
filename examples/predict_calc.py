@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import pathlib
@@ -20,36 +21,28 @@ argparser.add_argument("--dataset", type=str, required=True)
 argparser.add_argument("--split", type=str, required=True)
 argparser.add_argument("--output_jsonl", type=pathlib.Path, required=True)
 argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
-argparser.add_argument("--stepwise_generation", type=bool, default=False, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--num_beams", type=int, default=1)
 argparser.add_argument("--max_length", type=int, default=512)
 argparser.add_argument("--first_n", type=int, default=-1)
 args = argparser.parse_args()
 
-if os.path.exists(args.output_jsonl):
-    print(f"Output file {args.output_jsonl} already exists, exiting.")
-    exit()
-
 model_checkpoint = args.model_checkpoint
 
 tokenizer = transformers.T5Tokenizer.from_pretrained(model_checkpoint)
 model_class = transformers.T5ForConditionalGeneration
-if args.use_gadgets:
-    if args.stepwise_generation:
-        model_class = gadgets.model.stepwise_gadget_model(model_class)
-    else:
-        model_class = gadgets.model.gadget_assisted_model(model_class)
+if args.stepwise_generation:
+    model_class = gadgets.model.stepwise_gadget_model(model_class)
+elif args.use_gadgets:
+    model_class = gadgets.model.gadget_assisted_model(model_class)
 
 model = model_class.from_pretrained(model_checkpoint)
 
 if args.use_gadgets:
-    gadgets.utils.add_new_token(
-        "<",
-        is_special=False,
-        tokenizer=tokenizer,
-        model=model,
-        init_with=["[", ">"],
-    )
+    gadgets.utils.add_new_token("<",
+                                is_special=False,
+                                tokenizer=tokenizer,
+                                model=model,
+                                init_with=["[", ">"])
     text = "<gadget>2+2</gadget>"
     encoded = tokenizer(text, return_tensors="pt").input_ids
     decoded = tokenizer.batch_decode(encoded, skip_special_tokens=True, spaces_between_special_tokens=False)
@@ -62,41 +55,36 @@ if args.use_gadgets:
 model = model.eval().to("cuda")
 
 dataset = datasets.load_dataset(args.dataset, split=args.split)
-dataset_name = args.dataset.split("/")[-1]
-question_key = dataset_to_keys[dataset_name]["question_key"]
-answer_key = dataset_to_keys[dataset_name]["answer_key"]
 
-if args.use_gadgets:
-    dataset = dataset.map(lambda example: {"input_ids": tokenizer(example[question_key]).input_ids,
-                                           "question": example[question_key],
-                                           "answer": example[answer_key]},
-                          remove_columns=[question_key, answer_key])
-else:
-    keys = dataset_to_keys[dataset_name]
-    preprocessing_fn = preprocessing_factory(tokenizer=tokenizer, **keys)
-    labeler_fn = labeling_factory(tokenizer, dataset_to_labeler[dataset_name], question_key)
-    dataset = dataset.map(preprocessing_fn)
-    dataset = dataset.map(labeler_fn)
-    dataset = dataset.filter(lambda example: example["labels"] is not None)
+dataset = dataset.map(lambda example: {"input_ids": tokenizer(example["question"]).input_ids,
+                                       "question": example["question"],
+                                       "answer": example["chain"]},
+                      remove_columns=["question"])
 
 if args.first_n > 0:
     dataset = dataset.select(range(min(args.first_n, len(dataset))))
 
+
+def split_by_all(chain: str, ) -> list[str]:
+    split_symbol = ". " if ". " in chain else ".\n" if ".\n" in chain else "</gadget>" if "</gadget>" in chain else "\n"
+    return chain.split(split_symbol)
+
+
 with (torch.autocast(device_type="cuda", dtype=torch.bfloat16),
       torch.no_grad(),
-      open(args.output_jsonl, "a") as output_file):
+      open(args.output_jsonl, "w") as output_file):
     for example in tqdm(dataset):
         example = example.copy()
         input_ids = torch.tensor(example["input_ids"]).to(model.device).reshape(1, -1)
-        pred_tokens = model.generate(
-            input_ids,
-            generation_config=transformers.GenerationConfig(num_beams=args.num_beams, max_length=args.max_length)
-        )
+        pred_tokens = model.generate(input_ids,
+                                     generation_config=transformers.GenerationConfig(num_beams=args.num_beams,
+                                                                                     max_length=args.max_length))
         prediction_str = tokenizer.batch_decode(pred_tokens,
                                                 skip_special_tokens=True,
                                                 spaces_between_special_tokens=False)[0]
         example["prediction"] = prediction_str
-        for key in ["input_ids", "labels", "attention_mask", "labels_old"]:
+        example["num_steps"] = len(split_by_all(example["chain"]))
+        for key in ["input_ids", "labels", "attention_mask", "labels_old", "chain"]:
             if key in example:
                 del example[key]
         json.dump(example, output_file, ensure_ascii=False)

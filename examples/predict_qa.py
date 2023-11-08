@@ -18,7 +18,7 @@ argparser = argparse.ArgumentParser()
 argparser.add_argument("--model_checkpoint", type=pathlib.Path, required=True)
 argparser.add_argument("--datasets", type=str, required=True)
 argparser.add_argument("--split", type=str, required=True)
-argparser.add_argument("--output_jsonl", type=pathlib.Path, required=True)
+argparser.add_argument("--output_jsonl_prefix", type=str, required=True)
 argparser.add_argument("--stepwise_generation", type=bool, required=True, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--num_beams", type=int, default=1)
@@ -62,9 +62,9 @@ for dataset_id in args.datasets.split(","):
         dataset = dataset.select(range(min(args.first_n, len(dataset))))
 
     if len(args.datasets.split(",")) > 1:
-        out_file = args.output_jsonl + "-" + dataset_id
+        out_file = args.output_jsonl_prefix.split(".jsonl")[0] + "-" + dataset_id + ".jsonl"
     else:
-        out_file = args.output_jsonl
+        out_file = args.output_jsonl_prefix
 
     with (torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", dtype=torch.bfloat16),
           torch.no_grad(),
