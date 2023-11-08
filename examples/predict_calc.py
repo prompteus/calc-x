@@ -79,7 +79,7 @@ for dataset_id in args.datasets.split(","):
 
     with (torch.autocast(device_type="cuda", dtype=torch.bfloat16),
           torch.no_grad(),
-          open(args.output_jsonl, "w") as output_file):
+          open(out_file, "w") as output_file):
         for example in tqdm(dataset):
             example = example.copy()
             input_ids = torch.tensor(example["input_ids"]).to(model.device).reshape(1, -1)
