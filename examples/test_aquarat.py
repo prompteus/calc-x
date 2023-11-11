@@ -60,7 +60,8 @@ for pred, correct_option, options in zip(df["prediction"], df["result"], df["opt
         is_correct.append(True)
         continue
 
-    if gadgets.metrics.are_numeric_results_same(pred_result, extract_number_from_option(true_result)):
+    if gadgets.metrics.are_numeric_results_same(pred_result,
+                                                next(val for opt, val in options.items() if true_result in val)):
         is_correct.append(True)
         continue
 
@@ -74,4 +75,4 @@ is_correct = np.array(is_correct).astype(float).reshape(1, -1)
 bootstrap = scipy.stats.bootstrap(is_correct, np.mean, confidence_level=args.confidence_level, random_state=0)
 low, high = bootstrap.confidence_interval
 print(f"Predictions have a correct final result in {np.mean(is_correct)*100:.1f}±\small{{{((high-low)/2)*100:.1f}}}% of cases.")
-print(f"{args.confidence_level * 100}% Confidence interval: [{low:.4%}, {high:.4}%], i.e. ")
+print(f"{args.confidence_level * 100}% Confidence interval: [{low:.4%}, {high:.4%}], i.e. ")
