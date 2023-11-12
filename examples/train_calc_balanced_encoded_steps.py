@@ -20,9 +20,9 @@ import gadgets
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-model_name = "google/flan-t5-small"  # TODO
-# model_name = "google/t5-v1_1-xl"
-model_name = "trained_models/wild-butterfly-223-cont_teabreac-pretraining-ch160k"
+# model_name = "google/flan-t5-small"  # TODO
+model_name = "google/t5-v1_1-xl"
+# model_name = "trained_models/likely-dragon-149-ch18000-perstep_encoding-sole_pretraining"
 
 log_path = "logs/"
 wandb.init(
@@ -74,7 +74,7 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key):
     return preprocess_fn
 
 
-train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat"]
+train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k", "Calc-math_qa"]
 val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k", "Calc-aqua_rat"]
 
 # train_datasets_keys = ["Calc-gsm8k"]  # TODO: remove
@@ -209,7 +209,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     learning_rate=5e-5,
     do_train=True,
     do_eval=True,
-    warmup_steps=1000,
+    warmup_steps=2_000,
     max_steps=100_000,
     per_device_train_batch_size=9,  # TODO
     gradient_accumulation_steps=4,  # TODO
@@ -219,7 +219,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     eval_steps=4000,  # TODO
     save_steps=4000,
     evaluation_strategy="steps",
-    # bf16=True,  # TODO
+    bf16=True,  # TODO
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
