@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Optional, Callable, List
+from typing import Callable, List, Optional
 
 import bs4
 import torch
@@ -53,6 +53,7 @@ class GadgetAssistedModel:
                  prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
                  synced_gpus: Optional[bool] = None,
                  streamer: Optional["BaseStreamer"] = None,
+                 architecture: Optional[str] = 'encoder-decoder', # Could pass 'decoder-only
                  **kwargs,
                  # signature of GenerationMixin.generate() in Transformers==4.28.1, with inputs<=>input_ids
                  ) -> torch.LongTensor:
@@ -69,6 +70,11 @@ class GadgetAssistedModel:
             full_output: Full structured output of the model, including gadget, output, and result tags.
             result: Final result of the model, or None if not found.
         """
+
+        if architecture not in ['encoder-decoder', 'decoder-only']: # Supported styles
+            raise Exception('Unsupported architecture type for Gadget model')
+        
+        self.architecture_style = architecture
 
         stopping_criteria = transformers.generation.StoppingCriteriaList([StopAfterGadgetCall(self.tokenizer)])
 
@@ -121,17 +127,23 @@ class GadgetAssistedModel:
             if min_tokens is not None:
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
-            decoder_input_ids = torch.cat([
-                torch.tensor(self.config.decoder_start_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
-                total_output_encoded
-            ], dim=-1)
-
             model_output: transformers.utils.ModelOutput
-            model_output = super().generate(input_ids=input_ids,
-                                            stopping_criteria=stopping_criteria,
-                                            decoder_input_ids=decoder_input_ids,
-                                            **kwargs)[0]  # TODO This does not work in batch mode
-            # which occurs in evaluation during training
+
+            if self.architecture_style == 'encoder-decoder':
+                decoder_input_ids = torch.cat([
+                  torch.tensor(self.config.decoder_start_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
+                  total_output_encoded
+                ], dim=-1)
+                
+                model_output = super().generate(input_ids=input_ids,
+                                                stopping_criteria=stopping_criteria,
+                                                decoder_input_ids=decoder_input_ids,
+                                                **kwargs)[0]  # TODO This does not work in batch mode
+                # which occurs in evaluation during training
+            elif self.architecture_style == 'decoder-only':
+                model_output = super().generate(input_ids=input_ids,
+                                                stopping_criteria=stopping_criteria
+                                              )[0]
 
             # model.generate() outputs starts with decoder_input_ids
             total_output_str = self.tokenizer.decode(model_output,
