@@ -7,38 +7,11 @@ from typing import Dict, Iterable
 import evaluate
 import numpy as np
 import transformers
+import wandb
 
 import gadgets.datatypes
 import gadgets.gadget
 import gadgets.markup
-import wandb
-
-
-def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> bool:
-    if pred.strip() == true.strip():
-        return True
-
-    calculator = gadgets.gadget.Calculator()
-    try:
-        pred_float = calculator._float_eval(pred)
-        true_float = calculator._float_eval(true)
-        return math.isclose(pred_float, true_float, abs_tol=abs_tol)
-    except:
-        pass
-
-    return False
-
-
-def get_result_from_output(output):
-    res = re.findall("\. The final result is (.+?)\.", output)
-    if len(res) == 0:
-        return None
-    result = res[-1]  # returning the last occurence if multiple exist
-    result = result.split("=")[0]
-    # remove leading and trailing non-numeric characters
-    result = re.sub(r"^[^\-\+\d]+", "", result)
-    result = re.sub(r"[^0-9]+$", "", result)
-    return result
 
 
 class MyBaselineMetrics:
@@ -98,23 +71,14 @@ class MyBaselineMetrics:
             pred_num_tokens = [np.count_nonzero(pred != self.tokenizer.pad_token_id) for pred in preds]
 
             correct_results: list[bool] = []
-            # num_gadget_calls_pred: list[int] = []
-            # num_gadget_calls_true: list[int] = []
             for pred, true in zip(preds_str, trues_str):
-                pred_result = get_result_from_output(pred)
-                true_result = get_result_from_output(true)
-                # pred_chain, pred_result = gadgets.markup.from_model_markup(pred)
-                # true_chain, true_result = gadgets.markup.from_model_markup(true)
+                pred_result = gadgets.markup.get_result_from_output(pred)
+                true_result = gadgets.markup.get_result_from_output(true)
                 assert true_result is not None
                 pred_result = "" if pred_result is None else pred_result
                 true_result = "" if true_result is None else true_result
-                correct_results.append(are_numeric_results_same(pred_result, true_result))
-                # num_gadget_calls_true.append(
-                # sum(isinstance(step, gadgets.datatypes.Interaction) for step in true_chain)
-                # )
-                # num_gadget_calls_pred.append(
-                # sum(isinstance(step, gadgets.datatypes.Interaction) for step in pred_chain)
-                # )
+                correct_results.append(gadgets.metrics.are_results_same(pred_result, true_result))
+
 
             if self.log_predictions:
                 data = []

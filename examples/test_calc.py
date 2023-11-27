@@ -1,43 +1,33 @@
-import argparse
-
 import numpy as np
 import pandas as pd
-import scipy
+import scipy.stats
+import typer
 
 import gadgets
 
-argparser = argparse.ArgumentParser()
 
-argparser.add_argument("--input_jsonl", type=str)
-argparser.add_argument("--prediction_column", type=str, default="prediction")
-argparser.add_argument("--correct_column", type=str, default="result")
-argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
-argparser.add_argument("--confidence_level", type=float, default=0.95)
+def main(
+    input_jsonl: str = typer.Argument(...),
+    prediction_column: str = "prediction",
+    correct_column: str = "result",
+    confidence_level: float = 0.95,
+) -> None:
+    df = pd.read_json(input_jsonl, lines=True)
 
-args = argparser.parse_args()
+    true_results: pd.Series = df[correct_column]
+    pred_outputs: pd.Series = df[prediction_column]
+    pred_results = pred_outputs.apply(gadgets.markup.get_result_from_output)
+    is_correct = pred_results.combine(true_results, gadgets.metrics.are_results_same)
+    is_correct = is_correct.to_numpy().astype(float).reshape(1, -1)
 
-df = pd.read_json(args.input_jsonl, lines=True)
+    bootstrap = scipy.stats.bootstrap(is_correct, np.mean, confidence_level=confidence_level, random_state=0)
+    low, high = bootstrap.confidence_interval
+    mean = is_correct.mean()
+    radius = (high-low) / 2
 
-preds = df[args.prediction_column]
-trues = df[args.correct_column]
+    print(f"Predictions have a correct final result in {mean:.1%} ± {radius*100:.1f} of cases.")
+    print(f"{confidence_level:.1%} Confidence interval: [{low:.3%}, {high:.3%}]")
 
-is_correct = []
-if args.use_gadgets:
-    for pred, true_result in zip(preds, trues):
-        pred_chain, pred_result = gadgets.markup.from_model_markup(pred)
-        assert true_result is not None
-        pred_result = "" if pred_result is None else pred_result
-        true_result = "" if true_result is None else true_result
-        is_correct.append(gadgets.metrics.are_numeric_results_same(pred_result, true_result))
-else:
-    for pred, true_result in zip(preds, trues):
-        pred_result = gadgets.baseline_metrics.get_result_from_output(pred)
-        pred_result = "" if pred_result is None else pred_result
-        is_correct.append(gadgets.metrics.are_numeric_results_same(pred_result, true_result))
 
-is_correct = np.array(is_correct).astype(float).reshape(1, -1)
-
-bootstrap = scipy.stats.bootstrap(is_correct, np.mean, confidence_level=args.confidence_level, random_state=0)
-low, high = bootstrap.confidence_interval
-print(f"Predictions have a correct final result in {np.mean(is_correct)*100:.1f}±\small{{{((high-low)/2)*100:.1f}}}% of cases.")
-print(f"{args.confidence_level * 100}% Confidence interval: [{low:.4%}, {high:.4}%], i.e. ")
+if __name__ == "__main__":
+    typer.run(main)

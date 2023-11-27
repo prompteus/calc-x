@@ -60,7 +60,7 @@ for pred, correct_option, options in zip(df["prediction"], df["result"], df["opt
         is_correct.append(True)
         continue
 
-    if gadgets.metrics.are_numeric_results_same(pred_result, extract_number_from_option(true_result)):
+    if gadgets.metrics.are_results_same(pred_result, extract_number_from_option(true_result)):
         is_correct.append(True)
         continue
 

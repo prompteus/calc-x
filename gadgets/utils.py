@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 
+import numpy as np
 import peft
 import torch
 import transformers
@@ -46,6 +47,12 @@ def add_new_token(
             new_token_id = torch.tensor(new_token_id, dtype=torch.long, device=device)
             embedding: torch.Tensor = embeddings(new_token_id)
             embedding.copy_(init_weights)
+
+    text = "<gadget>2+2</gadget>"
+    encoded = tokenizer(text, return_tensors="pt").input_ids
+    decoded = tokenizer.batch_decode(encoded, skip_special_tokens=True, spaces_between_special_tokens=False)
+    if not decoded[0] == text:
+        raise RuntimeError(f"{text} -> encode -> decode -> {decoded[0]}")
 
 
 # Source: https://github.com/huggingface/peft/issues/96
