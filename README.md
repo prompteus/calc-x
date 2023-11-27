@@ -45,17 +45,12 @@ you can use the model using a calculator gadget as follows.
 ```python
 from transformers import T5ForConditionalGeneration, T5Tokenizer
 
-from gadgets.gadget_assisted_model import GadgetAssistedModel
+from gadgets.model import gadget_assisted_model
 from gadgets.gadget import Calculator
 
 
-class GadgetAssistedT5(GadgetAssistedModel, T5ForConditionalGeneration):
-    # GadgetAssistedModel overrides the standard generate() from transformers
-    pass
-
-
-model = GadgetAssistedT5.from_pretrained("MU-NLPC/Calc-FLAN-3B-GSM8K")
-tokenizer = T5Tokenizer.from_pretrained("MU-NLPC/Calc-FLAN-3B-GSM8K")
+model = GadgetAssistedT5.from_pretrained("MU-NLPC/calcformer-flan-xl")
+tokenizer = T5Tokenizer.from_pretrained("MU-NLPC/calcformer-flan-xl")
 
 model.prepare_for_generate(tokenizer, 
                            enabled_gadgets=[Calculator()], 
@@ -84,7 +79,7 @@ output_ids = model.generate(**inputs, architecture='decoder-only')
 
 ## Cite
 
-If you find Calc-X collection of Calcformers useful in your research, please cite the [Calc-X and Calcformers paper](https://arxiv.org/abs/2305.15017) as follows:
+If you find Calc-X collection or Calcformers useful in your research, please cite the [Calc-X and Calcformers paper](https://arxiv.org/abs/2305.15017) as follows:
 
 ```bibtex
 @inproceedings{kadlcik-etal-2023-soft,
