@@ -76,11 +76,15 @@ tokenizer.decode(output_ids[0], spaces_between_special_tokens=False)
 #  Mike will have $1000-$200 = $<gadget id="calculator">1000-200</gadget><output>800</output> 800 after buying a shirt. 
 #  Final result is<result>800</result></s>'
 ```
+If you use a decoder-only model, pass the `architecture` parameter into `model.generate` as follows:
+```python
+output_ids = model.generate(**inputs, architecture='decoder-only')
+```
 
 
 ## Cite
 
-If you find this project useful in your research, please cite the [Calc-X and Calcformers paper](https://arxiv.org/abs/2305.15017) as follows:
+If you find Calc-X collection of Calcformers useful in your research, please cite the [Calc-X and Calcformers paper](https://arxiv.org/abs/2305.15017) as follows:
 
 ```bibtex
 @inproceedings{kadlcik-etal-2023-soft,
