@@ -106,7 +106,7 @@ def get_result_from_output_fallback(output: str) -> str:
 def get_result_from_output(output: str) -> str:
     soup = bs4.BeautifulSoup(output, features="html.parser")
     result_tag = soup.find(RESULT_TAG)
-    if result_tag is None:
+    if result_tag is None or result_tag.string is None:
         return get_result_from_output_fallback(output)
     return result_tag.string.strip()
 
@@ -160,3 +160,16 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str]:
                 result = item.string.strip()
 
     return chain, result
+
+
+def strip_markup(markup: bs4.BeautifulSoup | str) -> str:
+    if isinstance(markup, str):
+        markup = bs4.BeautifulSoup(markup, features="html.parser")
+    
+    text = ""
+    for elem in markup.children:
+        if isinstance(elem, bs4.NavigableString):
+            text += elem
+
+    return text
+

@@ -1,104 +1,152 @@
 from __future__ import annotations
 
-import argparse
+import ast
+import copy
 import json
-import os
 import pathlib
+import sys
+import warnings
 
 import datasets
 import torch
 import transformers
-from baseline_utils import dataset_to_keys, dataset_to_labeler, labeling_factory, preprocessing_factory
+import typer
 from tqdm.auto import tqdm
 
 import gadgets
 
-argparser = argparse.ArgumentParser()
-
-argparser.add_argument("--model_checkpoint", type=pathlib.Path, required=True)
-argparser.add_argument("--dataset", type=str, required=True)
-argparser.add_argument("--split", type=str, required=True)
-argparser.add_argument("--output_jsonl", type=pathlib.Path, required=True)
-argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
-argparser.add_argument("--num_beams", type=int, default=1)
-argparser.add_argument("--max_length", type=int, default=512)
-argparser.add_argument("--first_n", type=int, default=-1)
-args = argparser.parse_args()
+app = typer.Typer()
 
 
-if os.path.exists(args.output_jsonl):
-    print(f"Output file {args.output_jsonl} already exists, exiting.")
-    exit()
+def get_generation_config(
+    default: dict,
+    context: typer.Context,
+) -> dict:
+    generation_kwargs = default.copy()
+    for key, value in zip(context.args[::2], context.args[1::2]):
+        generation_kwargs[key.lstrip("-")] = ast.literal_eval(value)
+    return generation_kwargs
+    
 
-model_checkpoint = args.model_checkpoint
-
-tokenizer = transformers.T5Tokenizer.from_pretrained(model_checkpoint)
-model_class = transformers.T5ForConditionalGeneration
-if args.use_gadgets:
-    model_class = gadgets.model.gadget_assisted_model(model_class)
-
-model = model_class.from_pretrained(model_checkpoint)
-
-if args.use_gadgets:
-    gadgets.utils.add_new_token(
-        "<",
-        is_special=False,
-        tokenizer=tokenizer,
-        model=model,
-        init_with=["[", ">"],
-    )
-    text = "<gadget>2+2</gadget>"
-    encoded = tokenizer(text, return_tensors="pt").input_ids
-    decoded = tokenizer.batch_decode(encoded, skip_special_tokens=True, spaces_between_special_tokens=False)
-    assert decoded[0] == text, decoded[0]
-
-    model.prepare_for_generate(
-        tokenizer,
-        enabled_gadgets=[gadgets.gadget.Calculator()],
-        default_max_tokens=args.max_length,
-    )
-
-model = model.eval().to("cuda")
-
-
-dataset = datasets.load_dataset(args.dataset, split=args.split)
-dataset_name = args.dataset.split("/")[-1]
-
-dataset = dataset.map(
-    lambda example: {
-        "input_ids": tokenizer(example["question"]).input_ids,
-        "question": example["question"],
-        "answer": example["chain"],
-    },
-    remove_columns=["question", "chain"],
+@app.command(
+    context_settings=dict(
+        allow_extra_args=True,
+        ignore_unknown_options=True,
+    ),
 )
+def main(
+    model_checkpoint: str = typer.Argument(...),
+    dataset_name: str = typer.Argument(...),
+    split: str = typer.Option(...),
+    output_jsonl: pathlib.Path = typer.Option(...),
+    use_gadgets: bool = typer.Option(...),
+    first_n_examples: int = -1,
+    sample_n_examples: int = -1,
+    num_preds_per_example: int = 1,
+    prediction_column: str = "prediction",
+    question_column: str = "question",
+    max_tokens: int = 1024,
+    sample_subset_seed: int = 0,
+    generation_kwargs: typer.Context = ...,
+) -> None:
+    
+    generation_kwargs = get_generation_config(
+        default=dict(num_beams=1, do_sample=False, max_length=max_tokens),
+        context=generation_kwargs,
+    )
+    print("Generation kwargs:", generation_kwargs)
+ 
+    command = " ".join(sys.argv) # pylint: disable=unused-variable
 
-if args.first_n > 0:
-    dataset = dataset.select(range(min(args.first_n, len(dataset))))
+    pred_config = copy.deepcopy(locals())
 
-with (
-    torch.autocast(device_type="cuda", dtype=torch.bfloat16),
-    torch.no_grad(),
-    open(args.output_jsonl, "a") as output_file,
-):
-    for example in tqdm(dataset):
-        example = example.copy()
-        input_ids = torch.tensor(example["input_ids"]).to(model.device).reshape(1, -1)
-        pred_tokens = model.generate(
-            input_ids,
-            generation_config=transformers.GenerationConfig(
-                num_beams=args.num_beams,
-                max_length=args.max_length,
-            ),
+    if output_jsonl.exists():
+        print(f"Output file {output_jsonl} already exists, exiting.")
+        exit()
+
+    output_config_json = output_jsonl.with_suffix(".config.json")
+    if output_config_json.exists():
+        print(f"Output file {output_config_json} already exists, exiting.")
+        exit()
+
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_checkpoint, use_fast=False)
+    model_class = transformers.T5ForConditionalGeneration
+    if use_gadgets:
+        model_class = gadgets.model.gadget_assisted_model(model_class)
+
+    model = model_class.from_pretrained(model_checkpoint)
+
+    if use_gadgets:
+        gadgets.utils.add_new_token(
+            "<",
+            is_special=False,
+            tokenizer=tokenizer,
+            model=model,
+            init_with=["[", ">"],
         )
-        prediction_str = tokenizer.batch_decode(
-            pred_tokens,
-            skip_special_tokens=True,
-            spaces_between_special_tokens=False,
-        )[0]
-        example["prediction"] = prediction_str
-        for key in ["input_ids", "labels", "attention_mask", "labels_old"]:
-            if key in example:
-                del example[key]
-        json.dump(example, output_file, ensure_ascii=False)
-        output_file.write("\n")
+
+        model.prepare_for_generate(
+            tokenizer,
+            enabled_gadgets=[gadgets.gadget.Calculator()],
+            default_max_tokens=max_tokens,
+        )
+
+    dataset = datasets.load_dataset(dataset_name, split=split)
+
+    if prediction_column in dataset.column_names:
+        raise ValueError(f"Column '{prediction_column}' already exists in dataset '{dataset_name}'.")
+
+    if first_n_examples > 0:
+        dataset = dataset.select(range(min(first_n_examples, len(dataset))))
+
+    if sample_n_examples > 0:
+        rand_gen = torch.Generator().manual_seed(sample_subset_seed)
+        indices = torch.randperm(len(dataset), generator=rand_gen)[:sample_n_examples]
+        dataset = dataset.select(indices)
+
+    generation_config = transformers.GenerationConfig(**generation_kwargs)
+
+    model = model.eval().to("cuda")
+
+    if num_preds_per_example > 1 and not generation_kwargs.get("do_sample", False):
+        warnings.warn("num_preds_per_input > 1 but do_sample not set. This can result in duplicate predictions.")
+
+    with open(output_config_json, "w") as output_config_file:
+        json.dump(
+            pred_config,
+            output_config_file,
+            ensure_ascii=False,
+            default=str,
+            indent=2,
+        )
+
+    with (
+        torch.autocast(device_type="cuda", dtype=torch.bfloat16),
+        torch.no_grad(),
+        open(output_jsonl, "a") as output_file,
+    ):
+        for example in tqdm(dataset):
+            example = example.copy()
+            inputs = tokenizer(example[question_column].strip(), return_tensors="pt").to(model.device)
+
+            for i in range(num_preds_per_example):
+                if num_preds_per_example > 1:
+                    idx = str(i).zfill(len(str(num_preds_per_example)))
+                    pred_col = f"{prediction_column}_{idx}"
+                else:
+                    pred_col = prediction_column
+
+                outputs = model.generate(**inputs, generation_config=generation_config)[0]
+
+                example[pred_col] = tokenizer.decode(
+                    outputs,
+                    skip_special_tokens=True,
+                    spaces_between_special_tokens=False,
+                )
+
+            json.dump(example, output_file, ensure_ascii=False)
+            output_file.write("\n")
+
+
+if __name__ == "__main__":
+    app()

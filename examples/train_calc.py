@@ -15,8 +15,8 @@ def main(
     use_instructions_train: bool = typer.Option(...),
     use_instructions_val: bool = typer.Option(...),
     model_name: str = "google/flan-t5-xl",
-    limit_train_set_per_ds: int = 10, # TODO -1
-    limit_val_set_per_ds: int = 4, # TODO 100
+    limit_train_set_per_ds: int = -1,
+    limit_val_set_per_ds: int = 100,
     wandb_entity: str = "transformersclub",
     wandb_project: str = "gadgets",
     wandb_group: Optional[str] = "instructions", # TODO
@@ -26,9 +26,9 @@ def main(
     batch_size: int = 2,
     grad_accum: int = 16,
     save_total_limit: int = 10,
-    eval_steps: int = 4, # TODO 8000, # 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    save_steps: int = 8, # TODO 8000,
-):
+    eval_steps: int = 8000, # 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    save_steps: int = 8000,
+) -> None:
     model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name)
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
     model_class = gadgets.model.gadget_assisted_model(model.__class__)
@@ -121,7 +121,8 @@ def main(
         eval_steps=eval_steps,
         save_steps=save_steps,
         evaluation_strategy="steps",
-        fp16=True,
+        bf16=True,
+        bf16_full_eval=True,
         predict_with_generate=True,
         generation_max_length=max_output_length,
         include_inputs_for_metrics=True,

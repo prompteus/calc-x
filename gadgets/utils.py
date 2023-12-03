@@ -31,7 +31,7 @@ def add_new_token(
         new_token_id = tokenizer.added_tokens_encoder[new_token_str]
 
     # extend the mapping of the model with the new token
-    model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=64)
 
     # if we're getting init_with, we're initializing embedding of the new token
     # to mean of the embeddings of the tokens in init_with
