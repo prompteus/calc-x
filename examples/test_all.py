@@ -25,7 +25,7 @@ def report_results(is_correct, num_steps: Optional[int] = None) -> None:
     low, high = bootstrap.confidence_interval
     num_steps = str(num_steps) if num_steps is not None else "all"
 
-    print(f"Predictions with {num_steps} have a correct final result in "
+    print(f"Predictions with {num_steps} steps have a correct final result in "
           f"{np.mean(is_correct)*100:.1f}±\small{{{((high-low)/2)*100:.1f}}}% of cases."
           f"{args.confidence_level * 100}% Confidence interval: [{low:.4%}, {high:.4}%].")
 
@@ -65,3 +65,5 @@ for input_jsonl in args.input_jsonls.split(","):
         for current_num_steps in range(1, num_steps.max()):
             if sum(num_steps.values == current_num_steps) > 1:
                 report_results(is_correct[(num_steps.values == current_num_steps)], current_num_steps)
+
+print()

@@ -269,7 +269,7 @@ class StepwiseGenerator(GadgetAssist):
             return torch.rand((1, 0))
 
         generated_output_ids = torch.hstack([extended_input_ids[:, :-1], output_ids])
-        generated_output_ids = generated_output_ids[:, input_ids.shape[0]+1:]  # we assume batch_size==1 here
+        generated_output_ids = generated_output_ids[:, input_ids.shape[-1]+1:]  # we assume batch_size==1 here
 
         return generated_output_ids
 

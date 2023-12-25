@@ -40,7 +40,7 @@ data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model=model)
 
 
 # Define how to preprocess different datasets
-def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str):
+def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str, get_steps_mask: bool = False):
     def preprocess_fn(sample, padding_length: int = 800):
         inputs = tokenizer(sample[question_key], truncation=True)
         labels = tokenizer(text_target=sample[chain_key], truncation=True)
@@ -52,7 +52,7 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split:
                     "labels": labels.input_ids,
                     "chain": sample[chain_key]}
 
-        if split == "train":
+        if split == "train" and get_steps_mask:
             steps_mask = []
             current_mask = 0
             inputs_iter = 0
@@ -114,7 +114,7 @@ def flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answe
     dict[str, List[str]]]:
     sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
 
-    steps = [step.strip() + sep for step in x[chain_key].split(sep)]
+    steps = [step.strip() + sep for step in x[chain_key].split(sep)] + [x[answer_key]]
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
@@ -145,13 +145,13 @@ for train_eval_split in dataset_to_keys.keys():
         dataset = datasets.load_dataset(dset_name)
         # per-step flattening -> for simplicity, flatten_sample_per_step requires batch_size=1
         for key in list(dataset.keys()):
-            if key == "test" and "gsm" in dset_name:
-                # GSM does not have standard validation split, so we need to create it
-                val_data = dataset["test"].select(list(range(min(valid_size, len(dataset["test"])))))
-                dataset["validation"] = val_data
-                # Remove the test split for now
-                del dataset["test"]
-                key = "validation"
+            # if key == "test" and "gsm" in dset_name:
+            #     # GSM does not have standard validation split, so we need to create it
+            #     val_data = dataset["test"].select(list(range(min(valid_size, len(dataset["test"])))))
+            #     dataset["validation"] = val_data
+            #     # Remove the test split for now
+            #     del dataset["test"]
+            #     key = "validation"
 
             dataset[key] = dataset[key].select(range(min(100, len(dataset[key]))))  # TODO remove: for debug only
             augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset[key].to_list()))
