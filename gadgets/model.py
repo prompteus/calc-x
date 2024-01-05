@@ -10,8 +10,10 @@ import bs4
 from typing import Any, Optional, Callable, List, Union, Tuple
 import unittest.mock
 
+from torch import Tensor
 from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList, T5ForConditionalGeneration
 from transformers.modeling_outputs import Seq2SeqLMOutput
+from transformers.modeling_utils import ModuleUtilsMixin
 from transformers.utils import ModelOutput
 
 from gadgets.gadget import Gadget, Calculator
@@ -136,17 +138,18 @@ class GadgetAssist(transformers.GenerationMixin):
             if min_tokens is not None:
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
-            decoder_input_ids = torch.cat([
+            kwargs["decoder_input_ids"] = torch.cat([
                 torch.tensor(self.config.decoder_start_token_id, dtype=torch.long).to(self.device).reshape(1, 1),
                 total_output_encoded
             ], dim=-1)
 
             model_output: transformers.utils.ModelOutput
-            model_output = super(transformers.T5ForConditionalGeneration, self).generate(
+            generate_cls = T5ForConditionalGeneration
+            model_output = generate_cls.generate(
+                self,
                 input_ids=input_ids,
                 stopping_criteria=stopping_criteria,
-                decoder_input_ids=decoder_input_ids,
-                **kwargs,
+                **{k: v for k, v in kwargs.items() if k not in ["labels"]},
             )[0]  # TODO This does not work in batch mode
             # which occurs in evaluation during training
 
@@ -210,7 +213,7 @@ class GadgetAssist(transformers.GenerationMixin):
         return output_tensor
 
 
-class StepwiseGenerator(GadgetAssist):
+class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
 
     @torch.no_grad()
     def generate(self,
@@ -375,6 +378,16 @@ class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                                           max_input_length,
                                           self.config.hidden_size), dtype=torch.float, device=self.device)
             all_positions = torch.arange(self.config.max_length, device=self.device)
+
+            def get_extended_attention_mask(self,
+                                            attention_mask: Tensor,
+                                            input_shape: Tuple[int],
+                                            device: torch.device = None,
+                                            dtype: torch.float = None) -> Tensor:
+                """
+                Adjusted from transformers.modeling_utils.ModuleUtilsMixin.get_extended_attention_mask
+                """
+                return attention_mask
 
             def forward(self,
                         steps_mask: Optional[torch.LongTensor] = None,
