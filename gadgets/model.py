@@ -145,6 +145,7 @@ class GadgetAssist(transformers.GenerationMixin):
                 input_ids=input_ids,
                 stopping_criteria=stopping_criteria,
                 decoder_input_ids=decoder_input_ids,
+                generation_config=generation_config,
                 **kwargs,
             )[
                 0
