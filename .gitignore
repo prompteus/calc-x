@@ -11,4 +11,6 @@ data/mawps/
 data/svamp/
 data/asdiv/
 predictions/
+selftrain_preds/
+selftrain_preds_old/
 *env
