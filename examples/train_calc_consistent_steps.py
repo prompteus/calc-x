@@ -14,6 +14,7 @@ from tqdm import tqdm
 from transformers import EarlyStoppingCallback
 
 import gadgets
+from gadgets.steps_utils import StepPermuter
 
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
@@ -57,6 +58,7 @@ gadgets.utils.add_new_token(
 
 STEP_ID = tokenizer.added_tokens_encoder[STEP_TOKEN]
 
+model.step_token_id = STEP_ID
 
 text = "<gadget>2+2</gadget>"
 encoded = tokenizer(text, return_tensors="pt").input_ids
@@ -71,25 +73,10 @@ model.prepare_for_generate(
 )
 
 
-# Define how to preprocess different datasets
-def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str):
-    def preprocess_fn(sample, padding_length: int = 800):
-        inputs = tokenizer(sample[question_key], truncation=True)
-        labels = tokenizer(text_target=sample[chain_key], truncation=True)
-
-        out_dict = {"question": sample[question_key],
-                    "answer": sample[answer_key],
-                    "input_ids": inputs.input_ids,
-                    "attention_mask": inputs.attention_mask,
-                    "labels": labels.input_ids,
-                    "chain": sample[chain_key]}
-        return out_dict
-
-    return preprocess_fn
-
-
-train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k", "Calc-math_qa"]
-val_datasets_keys = ["Calc-gsm8k", "Calc-ape210k"]
+# train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k", "Calc-math_qa"]
+train_datasets_keys = ["Calc-gsm8k"]
+# val_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k"]
+val_datasets_keys = ["Calc-gsm8k"]
 
 valid_size = 100  # TODO Select the first 100 samples for validation
 
@@ -116,36 +103,59 @@ dataset_to_keys = {
     # },
 }
 
+permuter = StepPermuter(tokenizer, STEP_TOKEN)
+
 
 # see https://discuss.huggingface.co/t/making-multiple-samples-from-single-samples-using-huggingface-datasets/6819
 def flatten_sample_per_step(x: Dataset,
                             question_key: str,
                             chain_key: str,
                             answer_key: str) -> Iterator[dict[str, List[str]]]:
+    # transformation of the dataset into a per-step version: "question+previous steps" -> "next step"
     sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
 
-    steps = [step.strip() + sep + STEP_TOKEN for step in x[chain_key].split(sep)]
-    # TODO: slices to steps partition single gadget calls
+    steps = [x[question_key] + STEP_TOKEN] + [step.strip() + sep + STEP_TOKEN for step in x[chain_key].split(sep)]
+    # TODO: slices to steps partition single gadget calls in APE210K
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
-    questions = ["".join((x[question_key], " ", sep.join(steps[:i])))  # TODO: this produces duplicate sep (".")
-                 for i in range(0, len(steps)) if valid_prediction_steps[i]]
-    chains = [step for i, step in enumerate(steps) if valid_prediction_steps[i]]
-    for question, target in zip(questions, chains):
+    paired_steps = permuter.permute_all_steps(steps)
+
+    questions = [sep.join(steps[:i]) for i in range(1, len(steps)) if valid_prediction_steps[i]]
+    questions_paired = [sep.join(paired_steps[:i]) for i in range(1, len(steps)) if valid_prediction_steps[i]]
+    targets = [step for i, step in enumerate(steps) if i > 0 and valid_prediction_steps[i]]
+
+    for question, question_paired, target in zip(questions, questions_paired, targets):
         yield {question_key + "_orig": x[question_key],
                question_key: question,
+               question_key + "_paired": question_paired,
                "steps": steps,
+               # "steps_paired": steps,
                chain_key: target,
                answer_key: x[answer_key]}
 
 
-def map_flatten_sample_per_step(x: Dataset, question_key: str, chain_key: str, answer_key: str, sep: str = "\n") -> \
-dict[str, List[str]]:
-    steps = x[chain_key][0].split(sep)
-    return {question_key: ["".join((x[question_key][0], " ", sep.join(steps[:i]))) for i in range(0, len(steps))],
-            chain_key: [step.strip() for step in steps],
-            answer_key: [x[answer_key][0]] * len(steps)}
+def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str):
+    # features encoding
+    def preprocess_fn(sample):
+        inputs = tokenizer(sample[question_key], truncation=True)
+        labels = tokenizer(text_target=sample[chain_key], truncation=True)
+
+        out_dict = {"question": sample[question_key],
+                    "answer": sample[answer_key],
+                    "input_ids": inputs.input_ids,
+                    "attention_mask": inputs.attention_mask,
+                    "labels": labels.input_ids,
+                    "chain": sample[chain_key]}
+
+        if split == "train":
+            inputs_paired = tokenizer(sample[question_key + "_paired"], truncation=True)
+            out_dict["paired_input_ids"] = inputs_paired.input_ids
+            out_dict["paired_attention_mask"] = inputs_paired.attention_mask
+
+        return out_dict
+
+    return preprocess_fn
 
 
 # tokenize and preprocess datasets for training
@@ -214,13 +224,13 @@ for dset_name, dataset in preprocessed_datasets.items():
 
 # Dropping columns so we can merge datasets
 # columns_to_keep = ["question", "answer", "input_ids", "attention_mask", "labels", "chain"]
-columns_to_keep = ["input_ids", "attention_mask", "labels", "steps_mask"]
+columns_to_keep = ["input_ids", "attention_mask", "labels", "steps_mask", "paired_input_ids", "paired_attention_mask"]
 for dset_name, dataset in preprocessed_datasets.items():
     for split_name, split_dset in dataset.items():
         columns_to_remove = [column for column in split_dset.column_names if column not in columns_to_keep]
         dataset[split_name] = split_dset.remove_columns(columns_to_remove)
 
-# concating datasets
+# concatenating datasets
 train_ds = concatenate_datasets([d["train"] for k, d in preprocessed_datasets.items() if k in train_datasets_keys])
 valid_ds = concatenate_datasets([d["validation"] for k, d in preprocessed_datasets.items() if k in val_datasets_keys])
 test_ds = concatenate_datasets([dset["test"] for dset in preprocessed_datasets.values()])  # NOT USED

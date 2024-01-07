@@ -1,24 +1,20 @@
 from __future__ import annotations
 
-import copy
 import logging
+import unittest.mock
 import warnings
+from typing import Optional, Callable, List, Union, Tuple
 
+import bs4
 import torch
 import transformers
-import bs4
-from typing import Any, Optional, Callable, List, Union, Tuple
-import unittest.mock
-
-from torch import Tensor
+from torch.nn import CrossEntropyLoss
 from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList, T5ForConditionalGeneration
-from transformers.modeling_outputs import Seq2SeqLMOutput
-from transformers.modeling_utils import ModuleUtilsMixin
-from transformers.utils import ModelOutput
+from transformers.modeling_outputs import Seq2SeqLMOutput, BaseModelOutput
+from transformers.models.t5.modeling_t5 import __HEAD_MASK_WARNING_MSG as HEAD_MASK_WARNING_MSG
 
 from gadgets.gadget import Gadget, Calculator
 from gadgets.markup import GADGET_TAG, OUTPUT_TAG, RESULT_TAG
-
 
 logger = logging.getLogger()
 
@@ -272,12 +268,13 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
             return torch.rand((1, 0))
 
         generated_output_ids = torch.hstack([extended_input_ids[:, :-1], output_ids])
-        generated_output_ids = generated_output_ids[:, input_ids.shape[-1]+1:]  # we assume batch_size==1 here
+        generated_output_ids = generated_output_ids[:, input_ids.shape[-1] + 1:]  # we assume batch_size==1 here
 
         return generated_output_ids
 
 
 class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
+    step_token_id: int
 
     @torch.no_grad()
     def generate(self,
@@ -350,6 +347,8 @@ class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                 steps_mask: Optional[torch.LongTensor] = None,  # used in training, not used in generation
                 input_ids: Optional[torch.LongTensor] = None,
                 attention_mask: Optional[torch.FloatTensor] = None,
+                paired_input_ids: Optional[torch.LongTensor] = None,
+                paired_attention_mask: Optional[torch.FloatTensor] = None,
                 decoder_input_ids: Optional[torch.LongTensor] = None,
                 decoder_attention_mask: Optional[torch.BoolTensor] = None,
                 head_mask: Optional[torch.FloatTensor] = None,
@@ -367,128 +366,144 @@ class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                 ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
 
         # override of default encoder's forward with the one wrapping the aggregation
-        class StepwiseEncoder(self.encoder.__class__):
-            steps_mask: Optional[torch.LongTensor] = None
-            superclass: Optional[type] = None
+        use_cache = use_cache if use_cache is not None else self.config.use_cache
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-            max_batch_size = 32
-            max_input_length = 800
+        # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
+        if head_mask is not None and decoder_head_mask is None:
+            if self.config.num_layers == self.config.num_decoder_layers:
+                warnings.warn(HEAD_MASK_WARNING_MSG, FutureWarning)
+                decoder_head_mask = head_mask
 
-            max_steps_sums = torch.zeros((max_batch_size,
-                                          max_input_length,
-                                          self.config.hidden_size), dtype=torch.float, device=self.device)
-            all_positions = torch.arange(self.config.max_length, device=self.device)
+        loss = torch.tensor(0.)
 
-            def get_extended_attention_mask(self,
-                                            attention_mask: Tensor,
-                                            input_shape: Tuple[int],
-                                            device: torch.device = None,
-                                            dtype: torch.float = None) -> Tensor:
-                """
-                Adjusted from transformers.modeling_utils.ModuleUtilsMixin.get_extended_attention_mask
-                """
-                return attention_mask
+        # Encode if needed (training & first prediction pass)
+        # Convert encoder inputs in embeddings if needed
+        if encoder_outputs is None:
+            encoder_outputs = self.encoder(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    inputs_embeds=inputs_embeds,
+                    head_mask=head_mask,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                    return_dict=return_dict,
+                )
 
-            def forward(self,
-                        steps_mask: Optional[torch.LongTensor] = None,
-                        input_ids=None,
-                        attention_mask=None,
-                        encoder_hidden_states=None,
-                        encoder_attention_mask=None,
-                        inputs_embeds=None,
-                        head_mask=None,
-                        cross_attn_head_mask=None,
-                        past_key_values=None,
-                        use_cache=None,
-                        output_attentions=None,
-                        output_hidden_states=None,
-                        return_dict=None):
-                if steps_mask is not None:
-                    self.steps_mask = steps_mask
-                orig_outputs = self.superclass.forward(self, input_ids, attention_mask, encoder_hidden_states,
-                                                       encoder_attention_mask, inputs_embeds, head_mask,
-                                                       cross_attn_head_mask, past_key_values, use_cache,
-                                                       output_attentions, output_hidden_states, return_dict)
-                # test:
-                # orig_outputs.last_hidden_state = torch.tensor([[[0, 0], [0, 0], [0, 1], [1, 1],
-                #                                                        [2, 2], [2, 2], [0, 1]]], dtype=torch.float)
-                # self.steps_mask = torch.tensor([[0, 1, 1, 1, 2, 2, 0]], dtype=torch.int64)
-                # expected_sum = torch.tensor([[[0, 1], [1, 2], [4, 4]]], dtype=torch.float)
-                # expected_avg = torch.tensor([[[0, 0.5], [0.33, 0.66], [2, 2]]], dtype=torch.float)
+            hidden_states = encoder_outputs[0]
 
-                batch_size, input_size, emb_size = orig_outputs.last_hidden_state.shape
+            # BEGIN EDIT - per-step regularization
+            if paired_input_ids is not None:
+                paired_encoder_outputs = self.encoder(
+                        input_ids=paired_input_ids,
+                        attention_mask=paired_attention_mask,
+                        inputs_embeds=inputs_embeds,
+                        head_mask=head_mask,
+                        output_attentions=output_attentions,
+                        output_hidden_states=output_hidden_states,
+                        return_dict=return_dict,
+                )
+                paired_hidden_states = paired_encoder_outputs[0]
 
-                steps_mask_idx = self.steps_mask[:, :input_size].unsqueeze(-1).expand(-1, -1, emb_size).clone()
-                unique_step_idx, idx_count = self.steps_mask.unique(return_counts=True)
+                step_hidden_states = hidden_states[input_ids == self.step_token_id]
+                pair_step_hidden_states = paired_hidden_states[paired_input_ids == self.step_token_id]
+                # assertion on consistent length is done directly by the loss
 
-                # steps_embeddings_sum = torch.zeros((batch_size,
-                #                                     unique_step_idx.max()+1,  # robust to missing mask values
-                #                                     emb_size), dtype=torch.float, device=steps_mask_idx.device)
-                steps_embeddings_sum = self.max_steps_sums[:batch_size, :unique_step_idx.max()+1, :emb_size]
+                cos_loss = torch.nn.CosineEmbeddingLoss()
 
-                steps_embeddings_sum.scatter_add_(dim=1,
-                                                  index=steps_mask_idx,
-                                                  src=orig_outputs.last_hidden_state)
+                # both losses are required to avoid exploding biases of <step> token and ignoring the attended inputs
+                equal_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states,
+                                            target=torch.tensor(-1).expand(step_hidden_states.shape[0]))
+                different_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states.roll(shifts=1, dims=1),
+                                                target=torch.tensor(1).expand(step_hidden_states.shape[0]))
 
-                # test: per-group sum:
-                # assert steps_embeddings_sum.isclose(expected_sum, rtol=2e-2).all()
+                loss = equal_steps_loss + different_steps_loss
 
-                # NORMALIZE PER-STEP ENCODINGS
-                num_embs = torch.vstack([(self.steps_mask == val).sum(-1) for val in range(unique_step_idx.max() + 1)]).T
-                # vals_sum is a zero denominator if steps do not contain any embeddings
-                steps_embeddings_sum /= num_embs.unsqueeze(-1).expand(-1, -1, steps_embeddings_sum.size(-1))
-                # drop embeddings of steps containing no embeddings:
-                steps_embeddings_sum[~num_embs.bool()] = 0
+        elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
+            encoder_outputs = BaseModelOutput(
+                    last_hidden_state=encoder_outputs[0],
+                    hidden_states=encoder_outputs[1] if len(encoder_outputs) > 1 else None,
+                    attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
+            )
 
-                # due to the per-sample counts, this requires for-loop
-                for batch_i in range(batch_size):
-                    # note: sentence-transformers also rescale (clamp) sum mask to min=1e-9 (see models/Pooling.py)
+        # END EDIT
+        hidden_states = encoder_outputs[0]
 
-                    # test: the embeddings' averages match the expected
-                    # assert steps_embeddings_sum[batch_i].isclose(expected_avg[batch_i], rtol=2e-2).all()
+        if self.model_parallel:
+            torch.cuda.set_device(self.decoder.first_device)
 
-                    num_steps = sum(num_embs[batch_i].bool())  # number of reasoning steps
+        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
+            # get decoder inputs from shifting lm labels to the right
+            decoder_input_ids = self._shift_right(labels)
 
-                    # Insert the encodings of reasoning steps after the encodings of the input tokens
-                    if (self.steps_mask[batch_i] == 1).any():
-                        # -> argmin reimplementation retrieving first non-input (=stepwise) position among encodings
-                        all_positions = torch.arange(self.steps_mask.size(-1), device=self.steps_mask.device)
-                        steps_begin_pos = all_positions[self.steps_mask[batch_i] == 1].min()
+        # Set device for model parallelism
+        if self.model_parallel:
+            torch.cuda.set_device(self.decoder.first_device)
+            hidden_states = hidden_states.to(self.decoder.first_device)
+            if decoder_input_ids is not None:
+                decoder_input_ids = decoder_input_ids.to(self.decoder.first_device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.decoder.first_device)
+            if decoder_attention_mask is not None:
+                decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
-                        # replace with only the non-zero embeddings that fit to the context of existing ones
-                        replaced_steps = min(len(orig_outputs.last_hidden_state[batch_i][steps_begin_pos:]), num_steps)
-                        orig_outputs.last_hidden_state[batch_i][steps_begin_pos:steps_begin_pos + replaced_steps] = \
-                            steps_embeddings_sum[batch_i][num_embs[batch_i].bool()][:replaced_steps]
+        # T5's cross-attention can not tackle with 2d attention masks, so we simply pass it a new one
+        flat_attention_mask = (input_ids != self.tokenizer.pad_token_id).long() if input_ids is not None else None
+        # Decode
+        decoder_outputs = self.decoder(
+            input_ids=decoder_input_ids,
+            attention_mask=decoder_attention_mask,
+            inputs_embeds=decoder_inputs_embeds,
+            past_key_values=past_key_values,
+            encoder_hidden_states=hidden_states,
+            encoder_attention_mask=flat_attention_mask,  # encoder_attention_mask=attention_mask[:, :0, :]
+            head_mask=decoder_head_mask,
+            cross_attn_head_mask=cross_attn_head_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        # note: updating mask = mask[:, :, :0, :]
+        # in `position_bias = position_bias + mask` (modeling_t5:L552)
+        # solves the problem -> transform attention_mask to a single dim
 
-                        # we keep other encodings as-is, but we hide them with attention mask
-                        attention_mask[batch_i][:steps_begin_pos + num_steps] = 1
-                        attention_mask[batch_i][steps_begin_pos + num_steps:] = 0
-                        # assert that the last attended position contains encoding of last reasoning step
-                        # exclude from test
-                        assert (orig_outputs.last_hidden_state[batch_i][attention_mask[batch_i].bool()][-1] ==
-                                steps_embeddings_sum[batch_i][num_embs[batch_i].bool()][replaced_steps-1]).all()
+        sequence_output = decoder_outputs[0]
 
-                # now, orig_encoder_output.last_hidden_state and encoder_kwargs["attention_mask"] are adjusted
+        # Set device for model parallelism
+        if self.model_parallel:
+            torch.cuda.set_device(self.encoder.first_device)
+            self.lm_head = self.lm_head.to(self.encoder.first_device)
+            sequence_output = sequence_output.to(self.lm_head.weight.device)
 
-                self.max_steps_sums.fill_(0)  # reset adjusted sums
+        if self.config.tie_word_embeddings:
+            # Rescale output before projecting on vocab
+            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
+            sequence_output = sequence_output * (self.model_dim ** -0.5)
 
-                return orig_outputs
+        lm_logits = self.lm_head(sequence_output)
 
-        orig_encoder = copy.deepcopy(self.encoder.__class__)
-        self.encoder.__class__ = StepwiseEncoder
-        if self.encoder.superclass is None:
-            self.encoder.superclass = orig_encoder
-        if steps_mask is not None:
-            self.encoder.steps_mask = steps_mask
+        if labels is not None:
+            loss_fct = CrossEntropyLoss(ignore_index=-100)
+            # move labels to correct device to enable PP
+            labels = labels.to(lm_logits.device)
+            loss += loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
 
-        # print("Superclass method: %s" % str(super().forward))
-        # lm_output: ModelOutput = super(self.__class__, self).forward(self, *args, **kwargs)
-        lm_output: ModelOutput = super().forward(input_ids, attention_mask, decoder_input_ids, decoder_attention_mask,
-                                                 head_mask, decoder_head_mask, cross_attn_head_mask, encoder_outputs,
-                                                 past_key_values, inputs_embeds, decoder_inputs_embeds, labels,
-                                                 use_cache, output_attentions, output_hidden_states, return_dict)
-        lm_output.loss = lm_output.loss  # TODO: perspectively, regularize the steps encodings
-        return lm_output
+        if not return_dict:
+            output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
+            return ((loss,) + output) if loss is not None else output
+
+        return Seq2SeqLMOutput(
+            loss=loss,
+            logits=lm_logits,
+            past_key_values=decoder_outputs.past_key_values,
+            decoder_hidden_states=decoder_outputs.hidden_states,
+            decoder_attentions=decoder_outputs.attentions,
+            cross_attentions=decoder_outputs.cross_attentions,
+            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+            encoder_hidden_states=encoder_outputs.hidden_states,
+            encoder_attentions=encoder_outputs.attentions,
+        )
 
 
 def gadget_assisted_model(model_class: transformers.PreTrainedModel):
@@ -534,8 +549,8 @@ def test_generate_check_outputs(
     assert isinstance(model, GadgetAssist)
 
     model.prepare_for_generate(
-        tokenizer,
-        enabled_gadgets=enabled_gadgets,
+            tokenizer,
+            enabled_gadgets=enabled_gadgets,
     )
 
     mocked_model_outputs_tokenized = [
@@ -546,14 +561,14 @@ def test_generate_check_outputs(
     with unittest.mock.patch("transformers.GenerationMixin.generate") as patched_model:
         patched_model.side_effect = mocked_model_outputs_tokenized
         full_output, result = model.generate(
-            str_prompt,
-            return_result=True,
-            return_as_str=True,
-            max_length=400,
-            num_beams=3,
-            num_return_sequences=1,
-            no_repeat_ngram_size=1,
-            remove_invalid_values=True,
+                str_prompt,
+                return_result=True,
+                return_as_str=True,
+                max_length=400,
+                num_beams=3,
+                num_return_sequences=1,
+                no_repeat_ngram_size=1,
+                remove_invalid_values=True,
         )
 
     expected_full_output = bs4.BeautifulSoup(" ".join(expected_full_outputs), features="html.parser").prettify()
@@ -612,12 +627,12 @@ def test_generate_with_gadgets():
 
     for i, test in enumerate(TESTS):
         assert test_generate_check_outputs(
-            model,
-            tokenizer,
-            test["mocked"],
-            test["expected_outputs"],
-            test["expected_result"],
-            enabled_gadgets=[Calculator()],
+                model,
+                tokenizer,
+                test["mocked"],
+                test["expected_outputs"],
+                test["expected_result"],
+                enabled_gadgets=[Calculator()],
         )
 
 
