@@ -26,9 +26,10 @@ def main(
     batch_size: int = 2,
     grad_accum: int = 16,
     save_total_limit: int = 10,
-    eval_steps: int = 8000, # 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    save_steps: int = 8000,
+    eval_steps: int = 16000, # 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    save_steps: int = 16000,
 ) -> None:
+    cli_params = locals()
     model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name)
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
     model_class = gadgets.model.gadget_assisted_model(model.__class__)
@@ -42,6 +43,8 @@ def main(
         group=wandb_group,
         dir=wandb_dir,
     )
+
+    wandb.config.update({"cli_params": cli_params})
 
     gadgets.utils.add_new_token(
         "<",
