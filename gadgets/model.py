@@ -371,7 +371,7 @@ class CompressedStepwiseGenerator(StepwiseGenerator):
                     self.losses_log["train_loss_consistency"] += loss
 
                 self.logging_iter += 1
-                if self.logging_iter >= self.trainer.args.logging_steps:
+                if self.logging_iter >= self.trainer.args.logging_steps * self.trainer.args.gradient_accumulation_steps:
                     self.trainer.log(
                             {k: (v / self.trainer.args.logging_steps).item() for k, v in self.losses_log.items()})
                     self.losses_log = {k: torch.tensor(0., device=self.device) for k in self.losses_log.keys()}
