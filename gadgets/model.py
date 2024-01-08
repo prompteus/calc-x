@@ -317,7 +317,7 @@ class CompressedStepwiseGenerator(StepwiseGenerator):
                 warnings.warn(HEAD_MASK_WARNING_MSG, FutureWarning)
                 decoder_head_mask = head_mask
 
-        loss = torch.tensor(0.)
+        loss = torch.tensor(0., device=self.device)
 
         # Encode if needed (training & first prediction pass)
         # Convert encoder inputs in embeddings if needed
