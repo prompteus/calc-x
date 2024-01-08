@@ -21,12 +21,12 @@ from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-model_name = "google/flan-t5-small"  # TODO
-# model_name = "google/t5-v1_1-large"
+# model_name = "google/flan-t5-small"  # TODO
+model_name = "google/t5-v1_1-large"
 # model_name = "/Users/xstefan3/PycharmProjects/gadgets-hackaton/trained_models/faithful-plant-182-ch12000"  # GSM+AQuA T5-compressed-memory-Large
 # model_name = "logs/faithful-plant-182/checkpoint-12000"  # pretrained T5-memory-Large on apollo
 
-log_path = "logs/"
+log_path = "/var/tmp/xstefan3/logs/"
 wandb.init(
     entity="transformersclub",
     project="gadgets",
@@ -135,7 +135,7 @@ def flatten_sample_per_step(x: dict[str, Any],
                answer_key: x[answer_key]}
 
 
-def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str):
+def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str, baseline: bool = True):
     # features encoding
     def preprocess_fn(sample):
         inputs = tokenizer(sample[question_key], truncation=True)
@@ -148,7 +148,7 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split:
                     "labels": labels.input_ids,
                     "chain": sample[chain_key]}
 
-        if split == "train":
+        if not baseline and split == "train":
             inputs_paired = tokenizer(sample[question_key + "_paired"], truncation=True)
             out_dict["paired_input_ids"] = inputs_paired.input_ids
             out_dict["paired_attention_mask"] = inputs_paired.attention_mask
@@ -167,7 +167,7 @@ for dset_name, keys in dataset_to_keys.items():
     if dset_name in train_datasets_keys:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
+        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -266,7 +266,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     eval_steps=1000,  # TODO
     save_steps=1000,
     evaluation_strategy="steps",
-    # bf16=True,  # TODO
+    bf16=True,  # TODO
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
@@ -274,7 +274,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     metric_for_best_model="avg_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=10,
+    save_total_limit=5,
     # no_cuda=True,  # TODO: remove
     # use_cpu=True,
     remove_unused_columns=False,

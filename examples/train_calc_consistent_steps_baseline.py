@@ -26,7 +26,7 @@ model_name = "google/t5-v1_1-large"
 # model_name = "/Users/xstefan3/PycharmProjects/gadgets-hackaton/trained_models/faithful-plant-182-ch12000"  # GSM+AQuA T5-compressed-memory-Large
 # model_name = "logs/faithful-plant-182/checkpoint-12000"  # pretrained T5-memory-Large on apollo
 
-log_path = "logs/"
+log_path = "/var/tmp/xstefan3/logs/"
 wandb.init(
     entity="transformersclub",
     project="gadgets",
@@ -266,7 +266,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     eval_steps=1000,  # TODO
     save_steps=1000,
     evaluation_strategy="steps",
-    # bf16=True,  # TODO
+    bf16=True,  # TODO
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
@@ -274,7 +274,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     metric_for_best_model="avg_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=10,
+    save_total_limit=5,
     # no_cuda=True,  # TODO: remove
     # use_cpu=True,
     remove_unused_columns=False,
