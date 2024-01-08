@@ -21,8 +21,8 @@ from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-model_name = "google/flan-t5-small"  # TODO
-# model_name = "google/t5-v1_1-large"
+# model_name = "google/flan-t5-small"  # TODO
+model_name = "google/t5-v1_1-large"
 # model_name = "/Users/xstefan3/PycharmProjects/gadgets-hackaton/trained_models/faithful-plant-182-ch12000"  # GSM+AQuA T5-compressed-memory-Large
 # model_name = "logs/faithful-plant-182/checkpoint-12000"  # pretrained T5-memory-Large on apollo
 
@@ -36,7 +36,7 @@ wandb.init(
 )
 
 tokenizer = transformers.T5Tokenizer.from_pretrained(model_name)
-model = gadgets.model.stepwise_compressed_gadget_model().from_pretrained(model_name)
+model = gadgets.model.stepwise_gadget_model(transformers.T5ForConditionalGeneration).from_pretrained(model_name)
 
 gadgets.utils.add_new_token(
     "<",
@@ -115,7 +115,7 @@ def flatten_sample_per_step(x: dict[str, Any],
     # sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
     separated_steps, sep = separate_chain_to_steps(x[chain_key])
     steps = [x[question_key] + STEP_TOKEN] + [step + STEP_TOKEN for step in separated_steps]
-    # TODO: slices to steps partition single gadget calls in APE210K
+    # TODO: slicing to steps does partition single gadget calls in APE210K
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
@@ -135,7 +135,7 @@ def flatten_sample_per_step(x: dict[str, Any],
                answer_key: x[answer_key]}
 
 
-def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str):
+def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str, baseline: bool = True):
     # features encoding
     def preprocess_fn(sample):
         inputs = tokenizer(sample[question_key], truncation=True)
@@ -148,7 +148,7 @@ def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split:
                     "labels": labels.input_ids,
                     "chain": sample[chain_key]}
 
-        if split == "train":
+        if not baseline and split == "train":
             inputs_paired = tokenizer(sample[question_key + "_paired"], truncation=True)
             out_dict["paired_input_ids"] = inputs_paired.input_ids
             out_dict["paired_attention_mask"] = inputs_paired.attention_mask
@@ -167,7 +167,7 @@ for dset_name, keys in dataset_to_keys.items():
     if dset_name in train_datasets_keys:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
+        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -286,7 +286,7 @@ trainer = transformers.Seq2SeqTrainer(
     train_dataset=train_ds,
     eval_dataset=valid_ds,
     tokenizer=tokenizer,
-    data_collator=gadgets.steps_utils.StepwiseCollatorForSeq2Seq(tokenizer, step_eos_token_id=STEP_ID, model=model),
+    data_collator=transformers.DataCollatorForSeq2Seq(tokenizer, model=model),
     compute_metrics=metrics,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )

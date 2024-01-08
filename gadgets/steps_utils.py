@@ -86,7 +86,8 @@ class StepwiseCollatorForSeq2Seq:
                 else:
                     feature["labels"] = np.concatenate([remainder, feature["labels"]]).astype(np.int64)
 
-        if "paired_input_ids" in features:  # paired samples are only present in training
+        paired_features = None
+        if "paired_input_ids" in features[0]:  # paired samples are only present in training
             paired_samples = [{"input_ids": sample["paired_input_ids"],
                                "attention_mask": sample["paired_attention_mask"]} for sample in features]
 
@@ -98,8 +99,6 @@ class StepwiseCollatorForSeq2Seq:
 
             paired_features["attention_mask"] = self.construct_extended_attention_mask(paired_features.input_ids,
                                                                                        paired_features.attention_mask)
-            features["paired_input_ids"] = paired_features["input_ids"]
-            features["paired_attention_mask"] = paired_features["attention_mask"]
 
         orig_samples = [{f: val for f, val in sample.items() if f not in ("paired_input_ids", "paired_attention_mask")}
                         for sample in features]
@@ -110,6 +109,10 @@ class StepwiseCollatorForSeq2Seq:
                                       return_tensors=return_tensors)
         features["attention_mask"] = self.construct_extended_attention_mask(features.input_ids,
                                                                             features.attention_mask)
+        if paired_features is not None:
+            features["paired_input_ids"] = paired_features["input_ids"]
+            features["paired_attention_mask"] = paired_features["attention_mask"]
+
         # prepare decoder_input_ids
         if (labels is not None
                 and self.model is not None
@@ -151,12 +154,23 @@ class StepwiseCollatorForSeq2Seq:
         return extended_attn_mask
 
 
+def separate_chain_to_steps(chain: str) -> tuple[list[str], str]:
+    """
+    heuristically separates input chain into a list of reasoning steps.
+    :param chain: Original chain
+    :return: A tuple: (list of steps contained in the chain, used separator)
+    """
+    sep = ". " if ". " in chain else ".\n" if ".\n" in chain else "\n"
+    steps = [step.strip() + sep for step in chain.split(sep)]
+
+    return steps, sep
+
+
 class StepPermuter:
     numeral_re = re.compile(r"\d+(?:\.\d+)?")
 
-    def __init__(self, tokenizer: PreTrainedTokenizerBase, steps_separator: str):
+    def __init__(self, tokenizer: PreTrainedTokenizerBase):
         self.tokenizer = tokenizer
-        self.steps_separator = steps_separator
 
     def _replace_num(self, number: int | float) -> str:
         # replace with a number of a similar scale as the original

@@ -9,7 +9,8 @@ import bs4
 import torch
 import transformers
 from torch.nn import CrossEntropyLoss
-from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList, T5ForConditionalGeneration
+from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList, T5ForConditionalGeneration, \
+    Trainer
 from transformers.modeling_outputs import Seq2SeqLMOutput, BaseModelOutput
 from transformers.models.t5.modeling_t5 import __HEAD_MASK_WARNING_MSG as HEAD_MASK_WARNING_MSG
 
@@ -114,8 +115,9 @@ class GadgetAssist(transformers.GenerationMixin):
 
         last_num_total_tokens: int | None = None
         total_output_str: str = ""
-        result_str = None
-
+        output_tensor = self.tokenizer.encode(total_output_str,
+                                              return_tensors="pt",
+                                              add_special_tokens=True).to(self.device)
         while True:
             total_output_encoded = self.tokenizer(text_target=total_output_str,
                                                   add_special_tokens=False,
@@ -142,10 +144,10 @@ class GadgetAssist(transformers.GenerationMixin):
             model_output: transformers.utils.ModelOutput
             generate_cls = T5ForConditionalGeneration
             model_output = generate_cls.generate(
-                self,
-                input_ids=input_ids,
-                stopping_criteria=stopping_criteria,
-                **{k: v for k, v in kwargs.items() if k not in ["labels"]},
+                    self,
+                    input_ids=input_ids,
+                    stopping_criteria=stopping_criteria,
+                    **{k: v for k, v in kwargs.items() if k not in ["labels"]},
             )[0]  # TODO This does not work in batch mode
             # which occurs in evaluation during training
 
@@ -224,13 +226,15 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
         # PerSentence generators decode outputs per reasoning step (~per sentence).
         # After each reasoning step, encode newly-generated output and generate the following step.
         # Once the model generates the <result> tag, terminate.
-        expected_max_length: Optional[int] = kwargs.get("max_new_tokens", None)  # max_new_tokens takes precendece
-        if expected_max_length is not None:
+        print("Input query: %s" % self.tokenizer.decode(input_ids[0]))
+
+        # resolve the maximum generation length: passed parameters get priority
+        if kwargs.get("max_new_tokens", None) is not None:
             expected_max_length = input_ids.shape[-1] + kwargs["max_new_tokens"]
-        elif kwargs.get("max_length", None) is not None:
-            expected_max_length = kwargs["max_length"]
+        elif kwargs.get("max_length", None):
+            expected_max_length = input_ids.shape[-1] + kwargs["max_length"]
         else:
-            expected_max_length = self.default_max_tokens
+            expected_max_length = input_ids.shape[-1] + self.default_max_tokens
 
         output_step = ""
         output_ids = None
@@ -245,7 +249,7 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
 
             # remove trailing special tokens -- we assume a single trailing token here (asserted above)
             extended_input_ids = torch.hstack([extended_input_ids[:, :-1], prev_step_ids])
-            if expected_max_length is not None and extended_input_ids.shape[-1] + 2 >= expected_max_length:
+            if extended_input_ids.shape[-1] + 2 >= expected_max_length:
                 logger.warning("Generation exceeded given max_length, without generating <result>.")
                 break
 
@@ -273,75 +277,13 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
         return generated_output_ids
 
 
-class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
+class CompressedStepwiseGenerator(StepwiseGenerator):
     step_token_id: int
-
-    @torch.no_grad()
-    def generate(self,
-                 input_ids: Optional[torch.Tensor] = None,
-                 generation_config: Optional[GenerationConfig] = None,
-                 logits_processor: Optional[LogitsProcessorList] = None,
-                 stopping_criteria: Optional[StoppingCriteriaList] = None,
-                 prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-                 synced_gpus: Optional[bool] = None,
-                 streamer: Optional["BaseStreamer"] = None,
-                 **kwargs) -> torch.LongTensor:
-        # PerSentence generators decode outputs per reasoning step (~per sentence).
-        # After each reasoning step, encode newly-generated output and generate the following step.
-        # Once the model generates the <result> tag, terminate.
-        print("Input query: %s" % self.tokenizer.decode(input_ids[0]))
-
-        expected_max_length: Optional[int] = kwargs.get("max_new_tokens", None)  # max_new_tokens takes precendese
-        if expected_max_length is not None:
-            expected_max_length = input_ids.shape[-1] + kwargs["max_new_tokens"]
-        else:
-            expected_max_length = kwargs.get("max_length", None)
-
-        output_step = ""
-        output_ids = None
-        extended_input_ids = input_ids.clone()
-        kwargs["steps_mask"] = torch.zeros_like(input_ids)
-
-        step_i = 0
-
-        # the length of suffix and prefix special tokens differ among models, we assume a single (trailing) <s> token
-        assert len(self.tokenizer(output_step).input_ids) == 1
-
-        # generated output does not contain the result -> encode intermediate output and continue in generation
-        while bs4.BeautifulSoup(output_step, features="html.parser").find(RESULT_TAG) is None:
-            prev_step_ids = self.tokenizer(output_step, return_tensors="pt").input_ids.to(self.device)
-
-            # remove trailing special tokens -- we assume a single trailing token here (asserted above)
-            extended_input_ids = torch.hstack([extended_input_ids[:, :-1], prev_step_ids])
-            kwargs["steps_mask"] = torch.hstack([kwargs["steps_mask"][:, :-1], torch.full_like(prev_step_ids, step_i)])
-
-            if expected_max_length is not None and extended_input_ids.shape[-1] + 2 >= expected_max_length:
-                logger.warning("Generation exceeded given max_length, without generating <result>.")
-                break
-
-            kwargs["attention_mask"] = torch.ones_like(extended_input_ids)  # manually rearrange attention mask
-
-            output_ids = super().generate(extended_input_ids, generation_config, logits_processor, stopping_criteria,
-                                          prefix_allowed_tokens_fn, synced_gpus, streamer, **kwargs)
-
-            output_step = self.tokenizer.batch_decode(output_ids,
-                                                      skip_special_tokens=True,
-                                                      spaces_between_special_tokens=False)[0]  # assumes no batching
-            if not output_step.strip():
-                logger.warning("Generated empty step -> terminating generation to avoid cycling.")
-                break
-
-            print("Output step: %s" % output_step)
-            step_i += 1
-
-        # collect complete generation output and remove the input segment
-        if output_ids is None:
-            return torch.rand((1, 0))
-
-        generated_output_ids = torch.hstack([extended_input_ids[:, :-1], output_ids])
-        generated_output_ids = generated_output_ids[:, input_ids.shape[0] + 1:]  # we assume batch_size==1 here
-
-        return generated_output_ids
+    trainer: Trainer
+    losses_log: dict[str, torch.tensor] = {"train_loss_sim_consistency": torch.tensor(0.),
+                                           "train_loss_diff_consistency": torch.tensor(0.),
+                                           "train_loss_consistency": torch.tensor(0.)}
+    logging_iter = 0
 
     def forward(self,
                 steps_mask: Optional[torch.LongTensor] = None,  # used in training, not used in generation
@@ -388,7 +330,7 @@ class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                     output_attentions=output_attentions,
                     output_hidden_states=output_hidden_states,
                     return_dict=return_dict,
-                )
+            )
 
             hidden_states = encoder_outputs[0]
 
@@ -407,17 +349,27 @@ class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
 
                 step_hidden_states = hidden_states[input_ids == self.step_token_id]
                 pair_step_hidden_states = paired_hidden_states[paired_input_ids == self.step_token_id]
-                # assertion on consistent length is done directly by the loss
 
-                cos_loss = torch.nn.CosineEmbeddingLoss()
+                if step_hidden_states.shape == pair_step_hidden_states.shape:
+                    # we skip the cases where the number of steps differ from reference (matching is unknown)
+                    # this occurs for the cases where alternative chain exceeds max_length and original does not
+                    cos_loss = torch.nn.CosineEmbeddingLoss()
+                    # to avoid overloading biases, <step> embeddings are concurrently optimised for both max and min
+                    equal_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states,
+                                                target=torch.tensor(-1).expand(step_hidden_states.shape[0]))
+                    different_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states.roll(shifts=1, dims=1),
+                                                    target=torch.tensor(1).expand(step_hidden_states.shape[0]))
+                    loss = equal_steps_loss + different_steps_loss
 
-                # both losses are required to avoid exploding biases of <step> token and ignoring the attended inputs
-                equal_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states,
-                                            target=torch.tensor(-1).expand(step_hidden_states.shape[0]))
-                different_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states.roll(shifts=1, dims=1),
-                                                target=torch.tensor(1).expand(step_hidden_states.shape[0]))
+                    self.losses_log["train_loss_sim_consistency"] += equal_steps_loss
+                    self.losses_log["train_loss_diff_consistency"] += different_steps_loss
+                    self.losses_log["train_loss_consistency"] += loss
 
-                loss = equal_steps_loss + different_steps_loss
+                self.logging_iter += 1
+                if self.logging_iter >= self.trainer.args.logging_steps:
+                    self.trainer.log({k: (v / self.trainer.args.logging_steps).item() for k, v in self.losses_log.items()})
+                    self.losses_log = {k: torch.tensor(0.) for k in self.losses_log.keys()}
+                    self.logging_iter = 0
 
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
@@ -451,18 +403,18 @@ class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
         flat_attention_mask = (input_ids != self.tokenizer.pad_token_id).long() if input_ids is not None else None
         # Decode
         decoder_outputs = self.decoder(
-            input_ids=decoder_input_ids,
-            attention_mask=decoder_attention_mask,
-            inputs_embeds=decoder_inputs_embeds,
-            past_key_values=past_key_values,
-            encoder_hidden_states=hidden_states,
-            encoder_attention_mask=flat_attention_mask,  # encoder_attention_mask=attention_mask[:, :0, :]
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
+                input_ids=decoder_input_ids,
+                attention_mask=decoder_attention_mask,
+                inputs_embeds=decoder_inputs_embeds,
+                past_key_values=past_key_values,
+                encoder_hidden_states=hidden_states,
+                encoder_attention_mask=flat_attention_mask,  # encoder_attention_mask=attention_mask[:, :0, :]
+                head_mask=decoder_head_mask,
+                cross_attn_head_mask=cross_attn_head_mask,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
         )
         # note: updating mask = mask[:, :, :0, :]
         # in `position_bias = position_bias + mask` (modeling_t5:L552)
@@ -494,15 +446,15 @@ class CompressedStepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
             return ((loss,) + output) if loss is not None else output
 
         return Seq2SeqLMOutput(
-            loss=loss,
-            logits=lm_logits,
-            past_key_values=decoder_outputs.past_key_values,
-            decoder_hidden_states=decoder_outputs.hidden_states,
-            decoder_attentions=decoder_outputs.attentions,
-            cross_attentions=decoder_outputs.cross_attentions,
-            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            encoder_hidden_states=encoder_outputs.hidden_states,
-            encoder_attentions=encoder_outputs.attentions,
+                loss=loss,
+                logits=lm_logits,
+                past_key_values=decoder_outputs.past_key_values,
+                decoder_hidden_states=decoder_outputs.hidden_states,
+                decoder_attentions=decoder_outputs.attentions,
+                cross_attentions=decoder_outputs.cross_attentions,
+                encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+                encoder_hidden_states=encoder_outputs.hidden_states,
+                encoder_attentions=encoder_outputs.attentions,
         )
 
 
@@ -513,7 +465,7 @@ def gadget_assisted_model(model_class: transformers.PreTrainedModel):
     return GadgetAssistedModel
 
 
-def stepwise_gadget_model(model_class: transformers.PreTrainedModel):
+def stepwise_gadget_model(model_class):
     class StepwiseGeneratorModel(StepwiseGenerator, model_class):
         pass
 

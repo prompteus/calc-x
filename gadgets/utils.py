@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
 import os
 import pathlib
 
 import torch
 import transformers
+
+import gadgets
 
 
 def add_new_token(
@@ -70,3 +73,16 @@ class SavePeftModelCallback(transformers.TrainerCallback):
             os.remove(pytorch_model_path)
 
         return control
+
+
+def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> bool:
+    if pred.strip() == true.strip():
+        return True
+
+    calculator = gadgets.gadget.Calculator()
+    try:
+        pred_float = calculator._float_eval(pred)
+        true_float = calculator._float_eval(true)
+        return math.isclose(pred_float, true_float, abs_tol=abs_tol)
+    except Exception:
+        return False
