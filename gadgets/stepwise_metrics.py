@@ -1,9 +1,13 @@
+import logging
 import random
 
 import transformers
 from transformers import PreTrainedTokenizer
 
 from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
+
+
+logger = logging.getLogger()
 
 
 class PerMistakesConsistency:
@@ -21,6 +25,10 @@ class PerMistakesConsistency:
             permuted_steps = self.permuter.permute_all_steps(model_steps)
 
             # pick a permutation step
+            num_steps = min(len(model_steps), len(permuted_steps))
+            if num_steps <= 1:
+                logger.warning("Single reasoning step -> skipping sample from consistency eval.")
+                continue
             try:
                 adjusted_step_i = random.randint(1, min(len(model_steps), len(permuted_steps)))
                 model_steps[adjusted_step_i] = permuted_steps[adjusted_step_i]
