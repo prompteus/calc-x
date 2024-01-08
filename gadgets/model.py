@@ -24,9 +24,9 @@ class StopAfterGadgetCall(transformers.generation.StoppingCriteria):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer) -> None:
         self.tokenizer = tokenizer
         self.closing_tag_ids = self.tokenizer(
-            "</" + GADGET_TAG + ">",
-            add_special_tokens=False,
-            return_tensors="pt"
+                "</" + GADGET_TAG + ">",
+                add_special_tokens=False,
+                return_tensors="pt"
         ).input_ids.flatten()
 
     def __call__(self, seq_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
@@ -356,10 +356,15 @@ class CompressedStepwiseGenerator(StepwiseGenerator):
                     cos_loss = torch.nn.CosineEmbeddingLoss()
                     # to avoid overloading biases, <step> embeddings are concurrently optimised for both max and min
                     equal_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states,
-                                                target=torch.tensor(-1).expand(step_hidden_states.shape[0]))
+                                                target=torch.tensor(-1, device=self.device).expand(
+                                                        step_hidden_states.shape[0]))
                     different_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states.roll(shifts=1, dims=1),
-                                                    target=torch.tensor(1).expand(step_hidden_states.shape[0]))
+                                                    target=torch.tensor(1, device=self.device).expand(
+                                                            step_hidden_states.shape[0]))
                     loss = equal_steps_loss + different_steps_loss
+
+                    if self.losses_log["train_loss_sim_consistency"].device != self.device:
+                        self.losses_log = {k: v.to(self.device) for k, v in self.losses_log.items()}
 
                     self.losses_log["train_loss_sim_consistency"] += equal_steps_loss
                     self.losses_log["train_loss_diff_consistency"] += different_steps_loss
@@ -367,8 +372,9 @@ class CompressedStepwiseGenerator(StepwiseGenerator):
 
                 self.logging_iter += 1
                 if self.logging_iter >= self.trainer.args.logging_steps:
-                    self.trainer.log({k: (v / self.trainer.args.logging_steps).item() for k, v in self.losses_log.items()})
-                    self.losses_log = {k: torch.tensor(0.) for k in self.losses_log.keys()}
+                    self.trainer.log(
+                            {k: (v / self.trainer.args.logging_steps).item() for k, v in self.losses_log.items()})
+                    self.losses_log = {k: torch.tensor(0., device=self.device) for k in self.losses_log.keys()}
                     self.logging_iter = 0
 
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
