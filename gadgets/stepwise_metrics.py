@@ -30,6 +30,7 @@ class PerMistakesConsistency:
             num_steps = min(len(model_steps), len(permuted_steps))
             if num_steps <= 1:
                 logger.warning("Single reasoning step -> skipping sample from consistency eval.")
+                alternative_chains.append("N/A")
                 continue
             try:
                 adjusted_step_i = random.randint(1, min(len(model_steps), len(permuted_steps))-1)
@@ -38,6 +39,7 @@ class PerMistakesConsistency:
             except IndexError:
                 logger.warning("Index error: %s, %s, %s"
                                % (adjusted_step_i, len(model_steps), len(permuted_steps)))
+                alternative_chains.append("N/A")
                 continue
 
             # continue in generation with the permuted step until generating <result>
