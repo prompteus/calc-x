@@ -2,6 +2,7 @@ import logging
 import random
 
 import transformers
+from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
@@ -20,7 +21,8 @@ class PerMistakesConsistency:
     def get_alternative_chain(self, inputs: list[str], predictions: list[str]) -> list[str]:
         alternative_chains = []
 
-        for question, pred in zip(inputs, predictions):
+        for question, pred in tqdm(zip(inputs, predictions),
+                                   total=len(predictions), desc="Generating alternative chains"):
             model_steps, sep = separate_chain_to_steps(pred)
             permuted_steps = self.permuter.permute_all_steps(model_steps)
 
