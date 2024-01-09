@@ -30,12 +30,13 @@ class PerMistakesConsistency:
                 logger.warning("Single reasoning step -> skipping sample from consistency eval.")
                 continue
             try:
-                adjusted_step_i = random.randint(1, min(len(model_steps), len(permuted_steps)))
+                adjusted_step_i = random.randint(1, min(len(model_steps), len(permuted_steps))-1)
                 model_steps[adjusted_step_i] = permuted_steps[adjusted_step_i]
                 full_previous_chain = "".join(model_steps[:adjusted_step_i+1])  # includes permuted step
             except IndexError:
-                print("adjusted_step_i: %s, %s, %s" % (adjusted_step_i, len(model_steps), len(permuted_steps)))
-                raise
+                logger.warning("Index error: %s, %s, %s"
+                               % (adjusted_step_i, len(model_steps), len(permuted_steps)))
+                continue
 
             # continue in generation with the permuted step until generating <result>
             new_inputs = self.tokenizer(full_previous_chain, return_tensors="pt").to(self.model.device)
