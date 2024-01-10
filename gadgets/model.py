@@ -353,14 +353,18 @@ class CompressedStepwiseGenerator(StepwiseGenerator):
                 if step_hidden_states.shape == pair_step_hidden_states.shape:
                     # we skip the cases where the number of steps differ from reference (matching is unknown)
                     # this occurs for the cases where alternative chain exceeds max_length and original does not
-                    cos_loss = torch.nn.CosineEmbeddingLoss()
-                    # to avoid overloading biases, <step> embeddings are concurrently optimised for both max and min
-                    equal_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states,
-                                                target=torch.tensor(-1, device=self.device).expand(
-                                                        step_hidden_states.shape[0]))
-                    different_steps_loss = cos_loss(step_hidden_states, pair_step_hidden_states.roll(shifts=1, dims=1),
-                                                    target=torch.tensor(1, device=self.device).expand(
-                                                            step_hidden_states.shape[0]))
+                    sim_cos_loss = torch.nn.CosineEmbeddingLoss()
+                    diff_cos_loss = torch.nn.CosineEmbeddingLoss(margin=0.5)
+                    # to avoid overloading biases, [step] embeddings are concurrently optimised for both max and min
+                    equal_steps_loss = sim_cos_loss(
+                            step_hidden_states, pair_step_hidden_states,
+                            target=torch.tensor(-1, device=self.device).expand(step_hidden_states.shape[0])
+                    )
+                    different_steps_loss = diff_cos_loss(
+                            step_hidden_states,
+                            pair_step_hidden_states.roll(shifts=1, dims=1),
+                            target=torch.tensor(1, device=self.device).expand(step_hidden_states.shape[0])
+                    )
                     loss = equal_steps_loss + different_steps_loss
 
                     if self.losses_log["train_loss_sim_consistency"].device != self.device:
@@ -372,8 +376,10 @@ class CompressedStepwiseGenerator(StepwiseGenerator):
 
                 self.logging_iter += 1
                 if self.logging_iter >= self.trainer.args.logging_steps * self.trainer.args.gradient_accumulation_steps:
-                    self.trainer.log(
-                            {k: (v / self.trainer.args.logging_steps).item() for k, v in self.losses_log.items()})
+                    self.trainer.log({k: (v / self.trainer.args.logging_steps).item()
+                                      for k, v in self.losses_log.items()})
+                    # TODO: add token loss
+
                     self.losses_log = {k: torch.tensor(0., device=self.device) for k in self.losses_log.keys()}
                     self.logging_iter = 0
 

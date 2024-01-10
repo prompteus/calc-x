@@ -79,6 +79,11 @@ class MyMetrics:
             num_gadget_calls_pred: list[int] = []
             num_gadget_calls_true: list[int] = []
             for pred, pred_alternative, true in zip(pred_chains, alternative_chains, true_answers):
+                # TODO: temporary fix of <step> tokens triggering bs4 parsing & failing to extract <result>
+                # TODO: can be removed for future trainings
+                pred = pred.replace("<step>", "[step]")
+                pred_alternative = pred_alternative.replace("<step>", "[step]")
+
                 pred_chain, pred_result = gadgets.markup.from_model_markup(pred)
                 true_chain, true_result = gadgets.markup.from_model_markup(true)
                 assert true_chain is not None, true_chain
