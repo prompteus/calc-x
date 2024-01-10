@@ -212,6 +212,7 @@ class GadgetAssist(transformers.GenerationMixin):
 
 
 class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
+    step_token_id: Optional[int] = None
 
     @torch.no_grad()
     def generate(self,
@@ -254,6 +255,9 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
                 break
 
             kwargs["attention_mask"] = torch.ones_like(extended_input_ids)  # manually rearrange attention mask
+            if self.step_token_id is not None:
+                # exclude attention onto the [step] tokens
+                kwargs["attention_mask"][extended_input_ids == self.step_token_id] = 0
 
             output_ids = super().generate(extended_input_ids, generation_config, logits_processor, stopping_criteria,
                                           prefix_allowed_tokens_fn, synced_gpus, streamer, **kwargs)
@@ -278,7 +282,6 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
 
 
 class CompressedStepwiseGenerator(StepwiseGenerator):
-    step_token_id: int
     trainer: Trainer
     losses_log: dict[str, torch.tensor] = {"train_loss_sim_consistency": torch.tensor(0.),
                                            "train_loss_diff_consistency": torch.tensor(0.),
