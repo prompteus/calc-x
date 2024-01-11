@@ -74,6 +74,7 @@ class MyMetrics:
             pred_num_tokens = [np.count_nonzero(pred != self.tokenizer.pad_token_id) for pred in preds]
 
             pred_results: list[str] = []
+            alternative_results: list[str] = []
             correct_results: list[bool] = []
             consistent_results: list[bool] = []
             num_gadget_calls_pred: list[int] = []
@@ -96,15 +97,17 @@ class MyMetrics:
 
                 _, alternative_result = gadgets.markup.from_model_markup(pred_alternative)  # extract the result
                 alternative_result = "@" if alternative_result is None else alternative_result
+                alternative_results.append(alternative_result)
                 consistent_results.append(pred_result == alternative_result)
 
                 num_gadget_calls_true.append(sum(isinstance(step, gadgets.datatypes.Interaction) for step in true_chain))
                 num_gadget_calls_pred.append(sum(isinstance(step, gadgets.datatypes.Interaction) for step in pred_chain))
 
             if self.log_predictions:
-                data = list(zip(questions, pred_chains, true_answers))
+                data = list(zip(questions, pred_chains, pred_results, alternative_results, true_answers))
 
-                table = wandb.Table(columns=["prompt", "prediction", "label"], data=data)
+                table = wandb.Table(columns=["prompt", "prediction", "result_orig", "result_alternative", "label"],
+                                    data=data)
 
                 wandb.log({"%s_prediction_examples" % dataset_id: table})
 

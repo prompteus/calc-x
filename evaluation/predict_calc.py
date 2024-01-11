@@ -89,9 +89,9 @@ for dataset_id in args.datasets.split(","):
             prediction_str = tokenizer.batch_decode(pred_tokens,
                                                     skip_special_tokens=True,
                                                     spaces_between_special_tokens=False)[0]
-            example["prediction"] = prediction_str
+            example["prediction"] = prediction_str.replace("<step>", "[step]")
 
-            steps = separate_chain_to_steps(example["chain"])
+            steps = separate_chain_to_steps(example["chain"], special_sep_token="[step]")
             example["num_steps"] = len(steps)
 
             if args.predict_alternative_cot:
@@ -99,7 +99,7 @@ for dataset_id in args.datasets.split(","):
                 consistency_evaluator = PerMistakesConsistency(model, tokenizer)
                 alternative_chain = consistency_evaluator.get_alternative_chain([example["question"]],
                                                                                 [prediction_str])[0]
-                example["prediction_alternative"] = alternative_chain
+                example["prediction_alternative"] = alternative_chain.replace("<step>", "[step]")
 
             for key in ["input_ids", "labels", "attention_mask", "labels_old", "chain"]:
                 if key in example:
