@@ -11,7 +11,7 @@ import transformers
 from tqdm.auto import tqdm
 
 import gadgets
-from examples.qa_utils import tagged_answer, apply_template
+from training.qa_utils import tagged_answer, apply_template
 
 argparser = argparse.ArgumentParser()
 

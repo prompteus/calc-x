@@ -17,7 +17,7 @@ from transformers.utils import PaddingStrategy
 
 @dataclass
 class StepwiseCollatorForSeq2Seq:
-    # Custom collator takes care of restricting the attention mask of <step> tokens to the per-step segments
+    # Custom collator takes care of restricting the attention mask of [step] tokens to the per-step segments
 
     """
     Data collator that will dynamically pad the inputs received, as well as the labels.
@@ -132,7 +132,7 @@ class StepwiseCollatorForSeq2Seq:
             # correction of trailing segment of augmented attention mask -> above, that gets repeated with ones
             extended_attn_mask[sample_i, :, sample_eos_pos:] = 0
 
-        # zero out attentions of <step> tokens directed *to* the tokens outside each step
+        # zero out attentions of [step] tokens directed *to* the tokens outside each step
         step_token_positions = input_ids == self.step_eos_token_id  # identify step positions
         step_token_positions[:, 0] = True  # set first tokens as delimiters for first reasoning step
         for sample_i in range(input_ids.shape[0]):  # iteration over batch
@@ -140,13 +140,13 @@ class StepwiseCollatorForSeq2Seq:
             if not step_tokens_pos.any():
                 # no step-eos token in the input -- first prediction turn
                 continue
-            # iterate over tuples of <step> tokens' indexes (=step separators)
+            # iterate over tuples of [step] tokens' indexes (=step separators)
             step_ranges = step_tokens_pos[:, 0].unfold(0, 2, 1)
 
-            # exclude <step> positions from attention of all other tokens
+            # exclude [step] positions from attention of all other tokens
             extended_attn_mask[sample_i] -= step_token_positions[sample_i].long()
 
-            # exclude attentions of <step> tokens outside their respective steps
+            # exclude attentions of [step] tokens outside their respective steps
             for step_range in step_ranges:  # iteration over steps ranges
                 extended_attn_mask[sample_i, step_range[1], :step_range[0]] = 0  # tokens before the step
                 extended_attn_mask[sample_i, step_range[1], step_range[1]:] = 0  # tokens after the step

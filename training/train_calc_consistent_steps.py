@@ -21,8 +21,8 @@ from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-# model_name = "google/flan-t5-small"  # TODO
-model_name = "google/t5-v1_1-large"
+model_name = "google/flan-t5-small"  # TODO
+# model_name = "google/t5-v1_1-large"
 # model_name = "/Users/xstefan3/PycharmProjects/gadgets-hackaton/trained_models/faithful-plant-182-ch12000"  # GSM+AQuA T5-compressed-memory-Large
 # model_name = "logs/faithful-plant-182/checkpoint-12000"  # pretrained T5-memory-Large on apollo
 
@@ -36,7 +36,7 @@ wandb.init(
 )
 
 tokenizer = transformers.T5Tokenizer.from_pretrained(model_name)
-model = gadgets.model.stepwise_gadget_model(transformers.T5ForConditionalGeneration).from_pretrained(model_name)
+model = gadgets.model.stepwise_compressed_gadget_model().from_pretrained(model_name)
 
 gadgets.utils.add_new_token(
     "<",
@@ -46,7 +46,7 @@ gadgets.utils.add_new_token(
     init_with=["[", ">"],
 )
 
-STEP_TOKEN = "<step>"
+STEP_TOKEN = "[step]"
 
 gadgets.utils.add_new_token(
     STEP_TOKEN,
@@ -78,7 +78,7 @@ train_datasets_keys = ["Calc-gsm8k"]
 # val_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k"]
 val_datasets_keys = ["Calc-gsm8k"]
 
-valid_size = 100  # TODO Adjust: Select the first 100 samples for validation
+valid_size = 3  # TODO Adjust: Select the first 100 samples for validation
 
 dataset_to_keys = {
     "Calc-gsm8k": {
@@ -115,7 +115,7 @@ def flatten_sample_per_step(x: dict[str, Any],
     # sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
     separated_steps, sep = separate_chain_to_steps(x[chain_key])
     steps = [x[question_key] + STEP_TOKEN] + [step + STEP_TOKEN for step in separated_steps]
-    # TODO: slicing to steps does partition single gadget calls in APE210K
+    # TODO: slices to steps partition single gadget calls in APE210K
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
@@ -135,7 +135,7 @@ def flatten_sample_per_step(x: dict[str, Any],
                answer_key: x[answer_key]}
 
 
-def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str, baseline: bool = True):
+def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str, baseline: bool = False):
     # features encoding
     def preprocess_fn(sample):
         inputs = tokenizer(sample[question_key], truncation=True)
@@ -167,7 +167,7 @@ for dset_name, keys in dataset_to_keys.items():
     if dset_name in train_datasets_keys:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
+        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
         flattened_dataset = itertools.chain(*augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
@@ -258,15 +258,15 @@ training_args = transformers.Seq2SeqTrainingArguments(
     do_eval=True,
     warmup_steps=1000,
     max_steps=200_000,
-    per_device_train_batch_size=8,  # TODO
-    gradient_accumulation_steps=4,  # TODO
+    per_device_train_batch_size=2,  # TODO
+    gradient_accumulation_steps=1,  # TODO
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=500,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=1000,  # TODO
+    logging_steps=2,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    eval_steps=2,  # TODO
     save_steps=1000,
     evaluation_strategy="steps",
-    bf16=True,  # TODO
+    # bf16=True,  # TODO
     predict_with_generate=True,
     generation_max_length=512,
     include_inputs_for_metrics=True,
@@ -276,7 +276,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     load_best_model_at_end=True,
     save_total_limit=5,
     # no_cuda=True,  # TODO: remove
-    # use_cpu=True,
+    use_cpu=True,
     remove_unused_columns=False,
 )
 
@@ -286,7 +286,7 @@ trainer = transformers.Seq2SeqTrainer(
     train_dataset=train_ds,
     eval_dataset=valid_ds,
     tokenizer=tokenizer,
-    data_collator=transformers.DataCollatorForSeq2Seq(tokenizer, model=model),
+    data_collator=gadgets.steps_utils.StepwiseCollatorForSeq2Seq(tokenizer, step_eos_token_id=STEP_ID, model=model),
     compute_metrics=metrics,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )

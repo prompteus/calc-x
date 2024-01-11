@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
-import os
 import pathlib
 
 import datasets
 import torch
 import transformers
-from baseline_utils import dataset_to_keys, dataset_to_labeler, labeling_factory, preprocessing_factory
 from tqdm.auto import tqdm
 
 import gadgets
+from gadgets.steps_utils import separate_chain_to_steps
+from gadgets.stepwise_metrics import PerMistakesConsistency
 
 argparser = argparse.ArgumentParser()
 
@@ -22,6 +21,7 @@ argparser.add_argument("--split", type=str, required=True)
 argparser.add_argument("--output_jsonl_prefix", type=str, required=True)
 argparser.add_argument("--stepwise_generation", type=bool, required=True, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
+argparser.add_argument("--predict_alternative_cot", type=bool, required=True, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--num_beams", type=int, default=1)
 argparser.add_argument("--max_length", type=int, default=512)
 argparser.add_argument("--first_n", type=int, default=-1)
@@ -90,7 +90,17 @@ for dataset_id in args.datasets.split(","):
                                                     skip_special_tokens=True,
                                                     spaces_between_special_tokens=False)[0]
             example["prediction"] = prediction_str
-            example["num_steps"] = len(split_by_all(example["chain"]))
+
+            steps = separate_chain_to_steps(example["chain"])
+            example["num_steps"] = len(steps)
+
+            if args.predict_alternative_cot:
+                # generate alternative chain, and inject a portion preceding randomly-chosen step as input to the model
+                consistency_evaluator = PerMistakesConsistency(model, tokenizer)
+                alternative_chain = consistency_evaluator.get_alternative_chain([example["question"]],
+                                                                                [prediction_str])[0]
+                example["prediction_alternative"] = alternative_chain
+
             for key in ["input_ids", "labels", "attention_mask", "labels_old", "chain"]:
                 if key in example:
                     del example[key]

@@ -45,8 +45,7 @@ class PerMistakesConsistency:
             # continue in generation with the permuted step until generating <result>
             new_inputs = self.tokenizer(full_previous_chain, return_tensors="pt").to(self.model.device)
             output_ids = self.model.generate(**new_inputs, max_new_tokens=512)
-            # TODO: distribution shift compared to training: <step> tokens here attend everything
-            # TODO: + all tokens attend to <step> tokens!
+            # TODO: distribution shift compared to training: [step] tokens here attend everything
             # TODO: this requires adjustment in CompressedStepwiseGenerator.generate()
             # TODO: but primary motivation is to regularize token embeddings in training
             # TODO: so it makes sense to try it out first without complicating things
@@ -65,6 +64,6 @@ class StepwiseLoss:
         self.permuter = StepPermuter(tokenizer)
         self.step_token_id = step_token_id
 
-        # TODO: we do not do this yet, because <step> tokens do not attend correct tokens in evaluation
-        # if we want correct evaluations of <step> consistencies, we'd need to fix that first, but maybe we don't
+        # TODO: we do not do this yet, because [step] tokens do not attend correct tokens in evaluation
+        # if we want correct evaluations of [step] consistencies, we'd need to fix that first, but maybe we don't
 

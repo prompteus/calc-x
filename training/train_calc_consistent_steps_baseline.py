@@ -36,7 +36,7 @@ wandb.init(
 )
 
 tokenizer = transformers.T5Tokenizer.from_pretrained(model_name)
-model = gadgets.model.stepwise_compressed_gadget_model().from_pretrained(model_name)
+model = gadgets.model.stepwise_gadget_model(transformers.T5ForConditionalGeneration).from_pretrained(model_name)
 
 gadgets.utils.add_new_token(
     "<",
@@ -46,7 +46,7 @@ gadgets.utils.add_new_token(
     init_with=["[", ">"],
 )
 
-STEP_TOKEN = "<step>"
+STEP_TOKEN = "[step]"
 
 gadgets.utils.add_new_token(
     STEP_TOKEN,
@@ -115,7 +115,7 @@ def flatten_sample_per_step(x: dict[str, Any],
     # sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
     separated_steps, sep = separate_chain_to_steps(x[chain_key])
     steps = [x[question_key] + STEP_TOKEN] + [step + STEP_TOKEN for step in separated_steps]
-    # TODO: slices to steps partition single gadget calls in APE210K
+    # TODO: slicing to steps does partition single gadget calls in APE210K
     # exclude from targets the steps with only the gadget output:
     valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
                                    and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
@@ -286,7 +286,7 @@ trainer = transformers.Seq2SeqTrainer(
     train_dataset=train_ds,
     eval_dataset=valid_ds,
     tokenizer=tokenizer,
-    data_collator=gadgets.steps_utils.StepwiseCollatorForSeq2Seq(tokenizer, step_eos_token_id=STEP_ID, model=model),
+    data_collator=transformers.DataCollatorForSeq2Seq(tokenizer, model=model),
     compute_metrics=metrics,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
