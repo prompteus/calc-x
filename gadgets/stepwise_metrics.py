@@ -13,17 +13,18 @@ logger = logging.getLogger()
 
 class PerMistakesConsistency:
 
-    def __init__(self, model: transformers.GenerationMixin, tokenizer: PreTrainedTokenizer):
+    def __init__(self, model: transformers.GenerationMixin, tokenizer: PreTrainedTokenizer, sep_token: str):
         self.model = model
         self.tokenizer = tokenizer
         self.permuter = StepPermuter(tokenizer)
+        self.sep_token = sep_token
 
     def get_alternative_chain(self, inputs: list[str], predictions: list[str]) -> list[str]:
         alternative_chains = []
 
         for question, pred in tqdm(zip(inputs, predictions),
                                    total=len(predictions), desc="Generating alternative chains"):
-            model_steps, sep = separate_chain_to_steps(pred)
+            model_steps, sep = separate_chain_to_steps(pred, self.sep_token)
             permuted_steps = self.permuter.permute_all_steps(model_steps)
 
             # pick a permutation step

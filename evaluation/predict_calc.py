@@ -22,6 +22,7 @@ argparser.add_argument("--output_jsonl_prefix", type=str, required=True)
 argparser.add_argument("--stepwise_generation", type=bool, required=True, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
 argparser.add_argument("--predict_alternative_cot", type=bool, required=True, action=argparse.BooleanOptionalAction)
+argparser.add_argument("--steps_sep_token", type=str, required=False, default="<step>")
 argparser.add_argument("--num_beams", type=int, default=1)
 argparser.add_argument("--max_length", type=int, default=512)
 argparser.add_argument("--first_n", type=int, default=-1)
@@ -89,17 +90,18 @@ for dataset_id in args.datasets.split(","):
             prediction_str = tokenizer.batch_decode(pred_tokens,
                                                     skip_special_tokens=True,
                                                     spaces_between_special_tokens=False)[0]
-            example["prediction"] = prediction_str.replace("<step>", "[step]")
 
-            steps = separate_chain_to_steps(example["chain"], special_sep_token="[step]")
+            steps = separate_chain_to_steps(example["chain"], special_sep_token=args.steps_sep_token)
             example["num_steps"] = len(steps)
 
             if args.predict_alternative_cot:
                 # generate alternative chain, and inject a portion preceding randomly-chosen step as input to the model
-                consistency_evaluator = PerMistakesConsistency(model, tokenizer)
+                consistency_evaluator = PerMistakesConsistency(model, tokenizer, args.steps_sep_token)
                 alternative_chain = consistency_evaluator.get_alternative_chain([example["question"]],
                                                                                 [prediction_str])[0]
                 example["prediction_alternative"] = alternative_chain.replace("<step>", "[step]")
+
+            example["prediction"] = prediction_str.replace("<step>", "[step]")
 
             for key in ["input_ids", "labels", "attention_mask", "labels_old", "chain"]:
                 if key in example:

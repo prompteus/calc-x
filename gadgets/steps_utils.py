@@ -154,14 +154,17 @@ class StepwiseCollatorForSeq2Seq:
         return extended_attn_mask
 
 
-def separate_chain_to_steps(chain: str, special_sep_token: Optional[str] = "") -> tuple[list[str], str]:
+def separate_chain_to_steps(chain: str, special_sep_token: Optional[str] = None) -> tuple[list[str], str]:
     """
     heuristically separates input chain into a list of reasoning steps.
     :param chain: Original chain
     :param special_sep_token: Additional, model-specific separator token
     :return: A tuple: (list of steps contained in the chain, used separator)
     """
-    sep = special_sep_token if special_sep_token in chain else ". " if ". " in chain else ".\n" if ".\n" in chain else "\n"
+    # pick the first candidate sep token that occurs in the chain
+    sep = special_sep_token if (special_sep_token is not None and special_sep_token in chain) \
+        else ". " if ". " in chain else ".\n" if ".\n" in chain else "\n"
+
     steps = [step.strip() + sep for step in chain.split(sep)]
 
     return steps, sep
