@@ -46,12 +46,16 @@ for input_jsonl in args.input_jsonls.split(","):
 
     is_correct = []
     is_consistent = []
+
+    all_results = []  # used only for debug
+    alternative_results = []  # used only for debug
     if args.use_gadgets:
         for pred_chain, alternative_chain, true_result in zip(preds, alternatives, trues):
             _, pred_result = gadgets.markup.from_model_markup(pred_chain)
             # true_chain, true_result = gadgets.markup.from_model_markup(true)
             assert true_result is not None
             pred_result = "" if pred_result is None else pred_result
+            all_results.append(pred_result)
             # true_result = "" if true_result is None else true_result
             is_correct.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(true_result)))
             if alternative_chain is not None:
@@ -64,6 +68,7 @@ for input_jsonl in args.input_jsonls.split(","):
             is_correct.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(true_result)))
             if alternative_chain is not None:
                 alternative_result = gadgets.baseline_metrics.get_result_from_output(pred_chain)
+                alternative_results.append(alternative_result)
                 is_consistent.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(alternative_result)))
 
     is_correct = np.array(is_correct).astype(float)
