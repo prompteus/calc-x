@@ -30,7 +30,7 @@ class MyMetrics:
         self.sacrebleu = evaluate.load("sacrebleu")
         self.rouge = evaluate.load("rouge")
         self.tokenizer = tokenizer
-        self.consistency_evaluator = PerMistakesConsistency(model, tokenizer)
+        self.consistency_evaluator = PerMistakesConsistency(model, tokenizer, steps_separator)
         self.log_predictions = log_predictions
         self.datasets_id_length = datasets_id_length
 
