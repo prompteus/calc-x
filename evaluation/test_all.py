@@ -60,6 +60,7 @@ for input_jsonl in args.input_jsonls.split(","):
             is_correct.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(true_result)))
             if alternative_chain is not None:
                 _, alternative_result = gadgets.markup.from_model_markup(alternative_chain)
+                alternative_results.append(alternative_result)
                 is_consistent.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(alternative_result)))
     else:
         for pred_chain, true_result in zip(preds, trues):
