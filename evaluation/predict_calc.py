@@ -91,7 +91,7 @@ for dataset_id in args.datasets.split(","):
                                                     skip_special_tokens=True,
                                                     spaces_between_special_tokens=False)[0]
 
-            steps = separate_chain_to_steps(example["chain"], special_sep_token=args.steps_sep_token)
+            steps, sep = separate_chain_to_steps(example["chain"], special_sep_token=args.steps_sep_token)
             example["num_steps"] = len(steps)
 
             if args.predict_alternative_cot:
