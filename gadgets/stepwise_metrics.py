@@ -53,7 +53,8 @@ class PerMistakesConsistency:
             output_str = self.tokenizer.batch_decode(output_ids,
                                                      skip_special_tokens=True,
                                                      spaces_between_special_tokens=False)[0]
-            alternative_chains.append(output_str)
+            prev_chain_without_question = full_previous_chain.replace(question, "").strip()
+            alternative_chains.append(prev_chain_without_question + output_str)
 
         return alternative_chains
 

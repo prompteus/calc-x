@@ -196,12 +196,13 @@ class StepPermuter:
 
     def _permute_numbers_all_steps(self, sample_steps: list[str]) -> list[str]:
         calculator = gadgets.gadget.Calculator()
-
+        # exclude options from permuted step: permuting correct option does not make sense
+        question = sample_steps[0].split("Pick one")[0]
         # permute numbers in the question (first step)
-        first_step_numerals = self.numeral_re.findall(sample_steps[0])
+        first_step_numerals = self.numeral_re.findall(question)
         replaces_map = {num: self._replace_num(num) for num in first_step_numerals}
 
-        out_steps = [self._replace_all(sample_steps[0], replaces_map)]
+        out_steps = [self._replace_all(question, replaces_map)]
 
         # for the reasoning steps, replace the inputs according to the input question
         # + <outputs> of previous steps computed from the already-altered inputs

@@ -72,6 +72,11 @@ model.prepare_for_generate(
     default_max_tokens=512,
 )
 
+train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k", "Calc-math_qa"]
+train_datasets_keys = ["Calc-aqua_rat"]
+# train_datasets_keys = ["Calc-gsm8k"]
+val_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k"]
+# val_datasets_keys = ["Calc-gsm8k"]
 
 # train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k", "Calc-math_qa"]
 train_datasets_keys = ["Calc-gsm8k"]
@@ -96,11 +101,11 @@ dataset_to_keys = {
         "answer_key": "result",
         "chain_key": "chain",
     },
-    # "Calc-math_qa": {
-    #     "question_key": "problem",
-    #     "answer_key": "rationale",
-    #     "chain_key": "chain",
-    # },
+    "Calc-math_qa": {
+        "question_key": "question",
+        "answer_key": "result",
+        "chain_key": "chain",
+    },
 }
 
 permuter = StepPermuter(tokenizer)
@@ -114,16 +119,29 @@ def flatten_sample_per_step(x: dict[str, Any],
     # transformation of the dataset into a per-step version: "question+previous steps" -> "next step"
     # sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
     separated_steps, sep = separate_chain_to_steps(x[chain_key])
-    steps = [x[question_key] + STEP_TOKEN] + [step + STEP_TOKEN for step in separated_steps]
-    # TODO: slicing to steps does partition single gadget calls in APE210K
-    # exclude from targets the steps with only the gadget output:
-    valid_prediction_steps = [not (step.startswith("<" + gadgets.markup.OUTPUT_TAG)
-                                   and step.endswith(gadgets.markup.OUTPUT_TAG + ">")) for step in steps]
+    steps = [x[question_key]] + separated_steps
+
+    def is_valid_step(step_str: str) -> bool:
+        # exclude from targets the steps with only the gadget output:
+        return bool(step_str.strip()) and not (step_str.strip().startswith("<" + gadgets.markup.OUTPUT_TAG)
+                                               and step_str.strip().endswith(gadgets.markup.OUTPUT_TAG + ">"))
+    # join steps so that one step contain all segments that are not valid steps by themselves
+    joint_step = ""
+    step = []
+    for step_i, _ in enumerate(steps):
+        joint_step += steps[step_i]
+        if step_i+1 < len(steps) and is_valid_step(steps[step_i+1]):  # look ahead to determine if to start a new step
+            step.append(joint_step)
+            joint_step = ""
+    if joint_step:
+        step.append(joint_step)
+
+    steps = [step + STEP_TOKEN for step in step]
     paired_steps = permuter.permute_all_steps(steps)
 
-    questions = [sep.join(steps[:i]) for i in range(1, len(steps)) if valid_prediction_steps[i]]
-    questions_paired = [sep.join(paired_steps[:i]) for i in range(1, len(steps)) if valid_prediction_steps[i]]
-    targets = [step for i, step in enumerate(steps) if i > 0 and valid_prediction_steps[i]]
+    questions = [sep.join(steps[:i]) for i in range(1, len(steps))]
+    questions_paired = [sep.join(paired_steps[:i]) for i in range(1, len(steps))]
+    targets = [step for i, step in enumerate(steps) if i > 0]
 
     for question, question_paired, target in zip(questions, questions_paired, targets):
         yield {question_key + "_orig": x[question_key],
@@ -251,8 +269,8 @@ metrics = gadgets.metrics.MyMetrics(
 )
 
 training_args = transformers.Seq2SeqTrainingArguments(
-    output_dir="./logs/" + wandb.run.name,  # TODO add
-    # output_dir="./logs/",
+    output_dir=log_path + wandb.run.name,  # TODO add
+    # output_dir=log_path,
     learning_rate=5e-5,
     do_train=True,
     do_eval=True,
@@ -262,7 +280,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     gradient_accumulation_steps=4,  # TODO
     per_device_eval_batch_size=1,
     eval_accumulation_steps=16,
-    logging_steps=500,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+    logging_steps=50,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
     eval_steps=1000,  # TODO
     save_steps=1000,
     evaluation_strategy="steps",
@@ -274,7 +292,7 @@ training_args = transformers.Seq2SeqTrainingArguments(
     metric_for_best_model="avg_correct_results",
     greater_is_better=True,
     load_best_model_at_end=True,
-    save_total_limit=5,
+    save_total_limit=2,
     # no_cuda=True,  # TODO: remove
     # use_cpu=True,
     remove_unused_columns=False,
@@ -294,4 +312,3 @@ trainer = transformers.Seq2SeqTrainer(
 model.trainer = trainer
 
 trainer.train()  # TODO: resume_from_checkpoint?
-trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")
