@@ -26,6 +26,7 @@ class PerMistakesConsistency:
                                    total=len(predictions), desc="Generating alternative chains"):
             model_steps, sep = separate_chain_to_steps(pred, self.sep_token)
             permuted_steps = self.permuter.permute_all_steps([question] + model_steps)
+            model_steps = [question] + model_steps  # to align with the positions of permuted_steps
 
             # pick a permutation step
             num_steps = min(len(model_steps), len(permuted_steps))
