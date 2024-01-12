@@ -50,8 +50,9 @@ class PerMistakesConsistency:
             # TODO: this requires adjustment in CompressedStepwiseGenerator.generate()
             # TODO: but primary motivation is to regularize token embeddings in training
             # TODO: so it makes sense to try it out first without complicating things
-            output_str = self.tokenizer.batch_decode(output_ids)[0]
-
+            output_str = self.tokenizer.batch_decode(output_ids,
+                                                     skip_special_tokens=True,
+                                                     spaces_between_special_tokens=False)[0]
             alternative_chains.append(output_str)
 
         return alternative_chains
