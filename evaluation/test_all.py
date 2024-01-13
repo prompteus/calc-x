@@ -84,6 +84,7 @@ for input_jsonl in args.input_jsonls.split(","):
             if sum(num_steps.values == current_num_steps) > 1:
                 report_results(is_correct[(num_steps.values == current_num_steps)], current_num_steps)
                 if len(is_consistent):
-                    report_results(is_consistent[(num_steps.values == current_num_steps)], current_num_steps)
+                    report_results(is_consistent[(num_steps.values == current_num_steps)], current_num_steps,
+                                   label="consistent")
 
 print()
