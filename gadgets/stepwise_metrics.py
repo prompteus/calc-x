@@ -10,6 +10,8 @@ from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
 
 logger = logging.getLogger()
 
+random.seed(42)
+
 
 class PerMistakesConsistency:
 
