@@ -176,14 +176,14 @@ class StepPermuter:
     def __init__(self, tokenizer: PreTrainedTokenizerBase):
         self.tokenizer = tokenizer
 
-    def _replace_num(self, number: int | float) -> str:
+    def _replace_num(self, number: int | float, contains_exp: bool = False) -> str:
         # replace with a number of a similar scale as the original
         is_decimal = "." in str(number)
-        number_length = len(str(number).split(".")[0]) if is_decimal else len(str(number))
+        number_length = len(str(number).replace("_", "").split(".")[0]) if is_decimal else len(str(number))
 
-        output_number = random.randint(1, 10 ** (number_length + 1))
+        output_number = random.randint(1, 10 ** (number_length + (-1 if contains_exp else 1)))
         if is_decimal:
-            output_number += random.random()
+            output_number += (random.randrange(100) / 100)
 
         return str(output_number)
 
@@ -200,7 +200,8 @@ class StepPermuter:
         question = sample_steps[0].split("Pick one")[0]
         # permute numbers in the question (first step)
         first_step_numerals = self.numeral_re.findall(question)
-        replaces_map = {num: self._replace_num(num) for num in first_step_numerals}
+        replaces_map = {num: self._replace_num(num, contains_exp=any("**" in step for step in sample_steps))
+                        for num in first_step_numerals}
 
         out_steps = [self._replace_all(question, replaces_map)]
 
@@ -230,7 +231,9 @@ class StepPermuter:
 
                 gadget_input = gadget_tag_input.get_text()
                 orig_gadget_output = orig_output.get_text()
-
+                # if "**" in gadget_input and gadget_input.count("_") > 3:
+                #     print("Calc input:" + gadget_input)
+                #     continue
                 new_gadget_output = calculator(gadget_input)
                 replaces_map[orig_gadget_output] = new_gadget_output.split(" = around")[0]
 
