@@ -28,7 +28,7 @@ def report_results(num_matching, num_steps: Optional[int] = None, label: str = "
 
     print(f"Predictions with {num_steps} steps have a {label} result in "
           f"{np.mean(num_matching) * 100:.1f}±\small{{{((high - low) / 2) * 100:.1f}}}% of cases."
-          f"{args.confidence_level * 100}% Confidence interval: [{low:.4%}, {high:.4}%].")
+          f"{args.confidence_level * 100}% Confidence interval: [{low:.4%}, {high:.4%}].")
 
 
 for input_jsonl in args.input_jsonls.split(","):
@@ -73,6 +73,7 @@ for input_jsonl in args.input_jsonls.split(","):
                 is_consistent.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(alternative_result)))
 
     is_correct = np.array(is_correct).astype(float)
+    is_consistent = np.array(is_consistent).astype(float)
 
     if not args.per_num_steps:
         report_results(is_correct)
@@ -82,5 +83,7 @@ for input_jsonl in args.input_jsonls.split(","):
         for current_num_steps in range(1, num_steps.max()):
             if sum(num_steps.values == current_num_steps) > 1:
                 report_results(is_correct[(num_steps.values == current_num_steps)], current_num_steps)
+                if is_consistent:
+                    report_results(is_consistent[(num_steps.values == current_num_steps)], current_num_steps)
 
 print()
