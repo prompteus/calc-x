@@ -77,13 +77,13 @@ for input_jsonl in args.input_jsonls.split(","):
 
     if not args.per_num_steps:
         report_results(is_correct)
-        if is_consistent:
+        if len(is_consistent):
             report_results(np.array(is_consistent).astype(float), label="consistent")
     else:
         for current_num_steps in range(1, num_steps.max()):
             if sum(num_steps.values == current_num_steps) > 1:
                 report_results(is_correct[(num_steps.values == current_num_steps)], current_num_steps)
-                if is_consistent:
+                if len(is_consistent):
                     report_results(is_consistent[(num_steps.values == current_num_steps)], current_num_steps)
 
 print()
