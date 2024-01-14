@@ -63,12 +63,12 @@ for input_jsonl in args.input_jsonls.split(","):
                 alternative_results.append(alternative_result)
                 is_consistent.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(alternative_result)))
     else:
-        for pred_chain, true_result in zip(preds, trues):
+        for pred_chain, alternative_chain, true_result in zip(preds, alternatives, trues):
             pred_result = gadgets.baseline_metrics.get_result_from_output(pred_chain)
             pred_result = "" if pred_result is None else pred_result
             is_correct.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(true_result)))
             if alternative_chain is not None:
-                alternative_result = gadgets.baseline_metrics.get_result_from_output(pred_chain)
+                alternative_result = gadgets.baseline_metrics.get_result_from_output(alternative_chain)
                 alternative_results.append(alternative_result)
                 is_consistent.append(gadgets.metrics.are_numeric_results_same(str(pred_result), str(alternative_result)))
 
