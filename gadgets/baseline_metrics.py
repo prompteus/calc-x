@@ -28,11 +28,13 @@ def are_numeric_results_same(pred: str, true: str, abs_tol: float = 1e-5) -> boo
 
     return False
 
+
 def get_result_from_output(output):
-    res = re.findall('\. The final result is (.+?)\.', output)
+    res = re.findall('\. The final result is (.+?)(?:\.|\))', output)
     if(len(res)==0):
         return None
     return res[-1] #returning the last occurence if multiple exist
+
 
 class MyBaselineMetrics:
 
