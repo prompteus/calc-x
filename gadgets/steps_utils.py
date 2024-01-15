@@ -196,9 +196,10 @@ class StepPermuter:
     def _permute_numbers_all_steps(self, sample_steps: list[str]) -> list[str]:
         calculator = gadgets.gadget.Calculator()
         # exclude options from permuted step: permuting correct option does not make sense
-        question = sample_steps[0].split("Pick one")[0]
+        multi_choice = "Pick one:" in sample_steps[0]
+        question = sample_steps[0]
         # permute numbers in the question (first step)
-        first_step_numerals = self.numeral_re.findall(question)
+        first_step_numerals = self.numeral_re.findall(question if not multi_choice else question.split("Pick one:")[0])
         replaces_map = {num: self._replace_num(num, contains_exp=any("**" in step for step in sample_steps))
                         for num in first_step_numerals}
 
@@ -237,6 +238,11 @@ class StepPermuter:
                 replaces_map[orig_gadget_output] = new_gadget_output.split(" = around")[0]
 
             out_steps.append(self._replace_all(step, replaces_map))
+
+        if multi_choice:
+            # replace the original options with the occurrence of the correct result on the same position
+            question, options = out_steps[0].split("Pick one:", maxsplit=2)
+            out_steps[0] = "Pick one:".join([question, self._replace_all(options, replaces_map)])
 
         return out_steps
 
