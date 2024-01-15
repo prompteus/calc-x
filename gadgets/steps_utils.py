@@ -1,18 +1,17 @@
+from __future__ import annotations
+
 import random
 import re
-from dataclasses import dataclass
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 
 import bs4
-import gadgets
-from gadgets.markup import GADGET_TAG, OUTPUT_TAG, RESULT_TAG
-
 import numpy as np
 import torch
-from transformers import DataCollatorForSeq2Seq, PreTrainedModel
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils import PaddingStrategy
+
+import gadgets
 
 
 @dataclass
