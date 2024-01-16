@@ -281,7 +281,7 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
         return generated_output_ids
 
 
-class CompressedStepwiseGenerator(StepwiseGenerator):
+class RegularizedStepsEncoderDecoder(StepwiseGenerator):
     trainer: Trainer
     losses_log: dict[str, torch.tensor] = {"train_loss_sim_consistency": torch.tensor(0.),
                                            "train_loss_diff_consistency": torch.tensor(0.),
@@ -376,7 +376,9 @@ class CompressedStepwiseGenerator(StepwiseGenerator):
                     self.losses_log["train_loss_sim_consistency"] += equal_steps_loss
                     self.losses_log["train_loss_diff_consistency"] += different_steps_loss
                     self.losses_log["train_loss_consistency"] += loss
-
+                else:
+                    logger.warning("Dims of [step] tokens in original (%s) and paired (%s) input do not match.",
+                                   str(step_hidden_states.shape), str(pair_step_hidden_states.shape))
                 self.logging_iter += 1
                 if self.logging_iter >= self.trainer.args.logging_steps * self.trainer.args.gradient_accumulation_steps:
                     self.trainer.log({k: (v / self.trainer.args.logging_steps).item()
