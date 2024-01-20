@@ -363,6 +363,10 @@ class EncoderRegularizationModel(StepwiseGenerator):
                 if step_hidden_states.shape == pair_step_hidden_states.shape:
                     # we skip the cases where the number of steps differ from reference (matching is unknown)
                     # this occurs for the cases where alternative chain exceeds max_length and original does not
+
+                    if self.losses_log["train_loss_sim_consistency"].device != self.device:
+                        self.losses_log = {k: v.to(self.device) for k, v in self.losses_log.items()}
+
                     if self.use_sim_loss:
                         sim_cos_loss = torch.nn.CosineEmbeddingLoss()
                         # to avoid overloading biases, [step] embeddings are concurrently optimised for both max and min
@@ -382,9 +386,6 @@ class EncoderRegularizationModel(StepwiseGenerator):
                         )
                         loss += different_steps_loss
                         self.losses_log["train_loss_diff_consistency"] += different_steps_loss
-
-                    if self.losses_log["train_loss_sim_consistency"].device != self.device:
-                        self.losses_log = {k: v.to(self.device) for k, v in self.losses_log.items()}
 
                     self.losses_log["train_loss_consistency"] += loss
                 else:
