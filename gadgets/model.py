@@ -192,7 +192,8 @@ class GadgetAssist(transformers.GenerationMixin):
 
             output_tensor = self.tokenizer.encode(total_output_str,
                                                   return_tensors="pt",
-                                                  add_special_tokens=True).to(self.device)
+                                                  add_special_tokens=True,
+                                                  truncation=True).to(self.device)
 
             # Commented things violate the generate() interface and may cause trouble in future versions:
 
@@ -281,12 +282,18 @@ class StepwiseGenerator(T5ForConditionalGeneration, GadgetAssist):
         return generated_output_ids
 
 
-class RegularizedStepsEncoderDecoder(StepwiseGenerator):
+class EncoderRegularizationModel(StepwiseGenerator):
     trainer: Trainer
     losses_log: dict[str, torch.tensor] = {"train_loss_sim_consistency": torch.tensor(0.),
                                            "train_loss_diff_consistency": torch.tensor(0.),
                                            "train_loss_consistency": torch.tensor(0.)}
     logging_iter = 0
+
+    # configurable parameters
+    sim_loss_weight: int = 4
+    use_sim_loss: bool = True
+    use_diff_loss: bool = True
+    use_next_token_loss: bool = False
 
     def forward(self,
                 steps_mask: Optional[torch.LongTensor] = None,  # used in training, not used in generation
@@ -356,25 +363,29 @@ class RegularizedStepsEncoderDecoder(StepwiseGenerator):
                 if step_hidden_states.shape == pair_step_hidden_states.shape:
                     # we skip the cases where the number of steps differ from reference (matching is unknown)
                     # this occurs for the cases where alternative chain exceeds max_length and original does not
-                    sim_cos_loss = torch.nn.CosineEmbeddingLoss()
-                    diff_cos_loss = torch.nn.CosineEmbeddingLoss(margin=0.5)
-                    # to avoid overloading biases, [step] embeddings are concurrently optimised for both max and min
-                    equal_steps_loss = sim_cos_loss(
-                            step_hidden_states, pair_step_hidden_states,
-                            target=torch.tensor(-1, device=self.device).expand(step_hidden_states.shape[0])
-                    )
-                    different_steps_loss = diff_cos_loss(
-                            step_hidden_states,
-                            pair_step_hidden_states.roll(shifts=1, dims=1),
-                            target=torch.tensor(1, device=self.device).expand(step_hidden_states.shape[0])
-                    )
-                    loss = equal_steps_loss + different_steps_loss
+                    if self.use_sim_loss:
+                        sim_cos_loss = torch.nn.CosineEmbeddingLoss()
+                        # to avoid overloading biases, [step] embeddings are concurrently optimised for both max and min
+                        equal_steps_loss = sim_cos_loss(
+                                step_hidden_states, pair_step_hidden_states,
+                                target=torch.tensor(-1, device=self.device).expand(step_hidden_states.shape[0])
+                        ) * self.sim_loss_weight
+                        loss += equal_steps_loss
+                        self.losses_log["train_loss_sim_consistency"] += equal_steps_loss
+                    if self.use_diff_loss:
+                        diff_cos_loss = torch.nn.CosineEmbeddingLoss(margin=0.5)
+
+                        different_steps_loss = diff_cos_loss(
+                                step_hidden_states,
+                                pair_step_hidden_states.roll(shifts=1, dims=0),
+                                target=torch.tensor(1, device=self.device).expand(step_hidden_states.shape[0])
+                        )
+                        loss += different_steps_loss
+                        self.losses_log["train_loss_diff_consistency"] += different_steps_loss
 
                     if self.losses_log["train_loss_sim_consistency"].device != self.device:
                         self.losses_log = {k: v.to(self.device) for k, v in self.losses_log.items()}
 
-                    self.losses_log["train_loss_sim_consistency"] += equal_steps_loss
-                    self.losses_log["train_loss_diff_consistency"] += different_steps_loss
                     self.losses_log["train_loss_consistency"] += loss
                 else:
                     logger.warning("Dims of [step] tokens in original (%s) and paired (%s) input do not match.",
@@ -452,7 +463,7 @@ class RegularizedStepsEncoderDecoder(StepwiseGenerator):
 
         lm_logits = self.lm_head(sequence_output)
 
-        if labels is not None:
+        if self.use_next_token_loss and labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
             # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
@@ -489,12 +500,14 @@ def stepwise_gadget_model(model_class):
     return StepwiseGeneratorModel
 
 
-def stepwise_compressed_gadget_model(model_class: Optional[transformers.PreTrainedModel] = None):
-    # class StepwiseGeneratorModel(StepwiseGenerator):
-    #
-    #     def __init__(self, config: PretrainedConfig, *inputs, **kwargs):
-    #         super().__init__(config, *inputs, **kwargs)
-    #         self.superclass = model_class
+def stepwise_compressed_gadget_model():
+
+    return EncoderRegularizationModel
+
+
+def simple_compressed_gadget_model():
+    class SimpleRegularizedGenerator(EncoderRegularizationModel):
+        pass
 
     return CompressedStepwiseGenerator
 
