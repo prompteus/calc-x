@@ -104,8 +104,16 @@ def get_result_from_output_fallback(output: str) -> str:
 
 
 def get_result_from_output(output: str) -> str:
+    # Fast regex search
+    match = re.search(f"<{RESULT_TAG}>(.+?)</{RESULT_TAG}>", output, flags=re.IGNORECASE)
+    if match is not None:
+        return match.group(1).strip()
+    
+    # Slow html parsing
     soup = bs4.BeautifulSoup(output, features="html.parser")
     result_tag = soup.find(RESULT_TAG)
+
+    # Fallback for when the result tag is not found
     if result_tag is None or result_tag.string is None:
         return get_result_from_output_fallback(output)
     return result_tag.string.strip()
