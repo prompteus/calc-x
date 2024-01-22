@@ -5110,13 +5110,13 @@ tutorials = ["matplotlib", "pandas", "tabulate"]
 
 [[package]]
 name = "trl"
-version = "0.7.7"
+version = "0.7.9"
 description = "Train transformer language models with reinforcement learning."
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "trl-0.7.7-py3-none-any.whl", hash = "sha256:78caafd2efb6e26db60b4b2806ff100811f42d3e79aaad24b5f9952410ae373e"},
-    {file = "trl-0.7.7.tar.gz", hash = "sha256:97fd6bd430512bc871a5e2a591a4e5d2ed1070efb3040addeb561053aba9d549"},
+    {file = "trl-0.7.9-py3-none-any.whl", hash = "sha256:d451086b697dc3316ca2311cd4b57b91377e464382b664eb715c08b1054d1109"},
+    {file = "trl-0.7.9.tar.gz", hash = "sha256:939d81bbc06b8537d803c8a6f7c95a3dd53edce92c92e635ccb4ee8cc3603b93"},
 ]
 
 [package.dependencies]
