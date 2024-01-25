@@ -36,6 +36,8 @@ def main(
     save_total_limit: int = 10,
     eval_steps: int = 8000,
     save_steps: int = 8000,
+    early_stopping_patience: int = 3,
+    early_stopping_threshold: float = 0.03,
 ) -> None:
     cli_params = locals()
     model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name)
@@ -69,8 +71,8 @@ def main(
     )
 
     early_stopping = transformers.EarlyStoppingCallback(
-        early_stopping_patience=5,
-        early_stopping_threshold=0.01
+        early_stopping_patience=early_stopping_patience,
+        early_stopping_threshold=early_stopping_threshold
     )
 
     training_args = transformers.Seq2SeqTrainingArguments(
