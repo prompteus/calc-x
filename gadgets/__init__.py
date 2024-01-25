@@ -10,4 +10,5 @@ from . import (
     model,
     prep,
     utils,
+    dpo_trainer
 )

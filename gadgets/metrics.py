@@ -102,6 +102,12 @@ class MonitorMetrics:
         self.tokenizer = tokenizer
         self.log_predictions = log_predictions
         self.source_ds_col = source_ds_col
+        self.expected_input_tokens = None
+        self.set_eval_ds_inputs(eval_ds_inputs)
+
+    def set_eval_ds_inputs(self, eval_ds_inputs: list[list[int]]) -> None:
+        if eval_ds_inputs is None:
+            return
         self.expected_input_tokens = remove_padding(eval_ds_inputs, self.tokenizer.pad_token_id)
         if len(self.expected_input_tokens) != len(self.source_ds_col):
             raise ValueError("Length of eval_ds_inputs and source_ds_col must be equal")
