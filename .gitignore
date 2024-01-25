@@ -14,3 +14,4 @@ predictions/
 selftrain_preds/
 selftrain_preds_old/
 *env
+notebooks/wandb/
