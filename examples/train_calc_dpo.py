@@ -16,8 +16,7 @@ rich.traceback.install(show_locals=False)
 
 
 def main(
-    #model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-128k",
-    model_name: str = "google/flan-t5-base",
+    model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-128k",
     wandb_entity: str = "transformersclub",
     wandb_project: str = "gadgets",
     wandb_group: Optional[str] = "dpo",
