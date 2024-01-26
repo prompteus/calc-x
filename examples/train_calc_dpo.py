@@ -1,18 +1,14 @@
 from typing import Optional
+import gc
 
 import datasets
-import trl
+import torch
 import transformers
 import typer
 import wandb
 import rich.traceback
 
 import gadgets
-
-
-# disable rich rumping locals into error stacktrace 
-# idk what package enables it, but it's annoying
-rich.traceback.install(show_locals=False)
 
 
 def main(
@@ -26,25 +22,31 @@ def main(
     train_ds_split_name: str = "train",
     valid_ds: str = "MU-NLPC/Calc-X",
     valid_ds_subset: Optional[str] = "ape210k",
-    limit_val_set_per_ds: int = 250,
+    limit_val_set_per_ds: int = 200,
     prompt_col: str = "question",
     chosen_col: str = "correct_1",
     rejected_col: str = "incorrect_1",
     max_output_length: int = 756,
     batch_size: int = 1,
     grad_accum: int = 32,
+    optim="adafactor",
     save_total_limit: int = 10,
-    eval_steps: int = 8000,
-    save_steps: int = 8000,
+    eval_steps: int = 2000,
+    save_steps: int = 2000,
     early_stopping_patience: int = 3,
     early_stopping_threshold: float = 0.03,
+    learning_rate: float = 2e-5,
 ) -> None:
     cli_params = locals()
-    model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
+
+    model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name, device_map="cpu")
     model_class = gadgets.model.gadget_assisted_model(model.__class__)
-    model = model_class.from_pretrained(model_name)
+    del model
+    gc.collect()
+    model = model_class.from_pretrained(model_name, torch_dtype=torch.bfloat16)
     assert isinstance(model, gadgets.model.GadgetAssist)
+
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
 
     wandb.init(
         entity=wandb_entity,
@@ -77,7 +79,7 @@ def main(
 
     training_args = transformers.Seq2SeqTrainingArguments(
         output_dir=f"{checkpoint_dir}/{wandb.run.name}",
-        learning_rate=5e-5,
+        learning_rate=learning_rate,
         do_train=True,
         do_eval=True,
         warmup_steps=1000,
@@ -86,6 +88,7 @@ def main(
         gradient_accumulation_steps=grad_accum,
         per_device_eval_batch_size=1,
         eval_accumulation_steps=16,
+        optim=optim,
         logging_steps=10,
         eval_steps=eval_steps,
         save_steps=save_steps,
@@ -107,6 +110,7 @@ def main(
     ds_train = ds_train.rename_column(prompt_col, "prompt")
     ds_train = ds_train.rename_column(chosen_col, "chosen")
     if rejected_col is None or rejected_col == "":
+        print("No rejected column specified, using empty string as rejected value")
         ds_train = ds_train.map(lambda x: {"rejected": ""})
     else:
         ds_train = ds_train.rename_column(rejected_col, "rejected")

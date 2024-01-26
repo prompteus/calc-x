@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Optional
+import gc
 
 import datasets
+import torch
 import numpy as np
 import transformers
 import typer
@@ -12,29 +14,42 @@ import gadgets
 
 
 def main(
-    use_instructions_train: bool = typer.Option(...),
-    use_instructions_val: bool = typer.Option(...),
-    model_name: str = "google/flan-t5-xl",
+    use_instructions_train: bool = False,
+    use_instructions_val: bool = False,
+    model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-128k",
     limit_train_set_per_ds: int = -1,
-    limit_val_set_per_ds: int = 100,
+    limit_val_set_per_ds: int = 200,
     wandb_entity: str = "transformersclub",
     wandb_project: str = "gadgets",
-    wandb_group: Optional[str] = "instructions", # TODO
+    wandb_group: Optional[str] = "dpo", # TODO
     wandb_dir: str = ".wandb",
     checkpoint_dir: str = "checkpoints",
-    max_output_length: int = 1024,
-    batch_size: int = 2,
-    grad_accum: int = 16,
+    train_ds: str = "MU-NLPC/Calc-ape210k_selftrain_experiment",
+    train_ds_split_name: str = "train",
+    input_col: str = "question",
+    train_label_col: str = "correct_1",
+    valid_label_col: str = "chain",
+    valid_ds: str = "MU-NLPC/Calc-X",
+    valid_ds_subset: Optional[str] = "ape210k",
+    max_output_length: int = 756,
+    batch_size: int = 1,
+    grad_accum: int = 32,
+    optim="adafactor",
     save_total_limit: int = 10,
-    eval_steps: int = 16000, # 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    save_steps: int = 16000,
+    eval_steps: int = 2000,
+    save_steps: int = 2000,
+    learning_rate: float = 2e-5,
 ) -> None:
     cli_params = locals()
-    model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
+
+    model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name, device_map="cpu")
     model_class = gadgets.model.gadget_assisted_model(model.__class__)
-    model = model_class.from_pretrained(model_name)
+    del model
+    gc.collect()
+    model = model_class.from_pretrained(model_name, torch_dtype=torch.bfloat16)
     assert isinstance(model, gadgets.model.GadgetAssist)
+    
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
 
     wandb.init(
         entity=wandb_entity,
@@ -61,8 +76,8 @@ def main(
     )
 
     data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model)
-    ds_train = datasets.load_dataset("MU-NLPC/Calc-X", split="train")
-    ds_valid = datasets.load_dataset("MU-NLPC/Calc-X", split="validation")
+    ds_train = datasets.load_dataset(train_ds, split=train_ds_split_name)
+    ds_valid = datasets.load_dataset(valid_ds, split="validation")
     instructions_ds = datasets.load_dataset("MU-NLPC/Calc-X_instructions")
     
     random_generator = np.random.default_rng(0)
@@ -73,13 +88,15 @@ def main(
             instructions_ds[source_ds]["template"],
             p=instructions_ds[source_ds]["weight"],
         )
-        return {"question": template.format(example["question"])}
+        return {input_col: template.format(example[input_col])}
 
     if limit_train_set_per_ds is not None and limit_train_set_per_ds > 0:
         df_train = ds_train.to_pandas()
         df_train = df_train.groupby("source_ds").sample(limit_train_set_per_ds, random_state=0)
         ds_train = datasets.Dataset.from_pandas(df_train)
 
+    if valid_ds_subset is not None:
+        ds_valid = ds_valid.filter(lambda x: x["source_ds"] == valid_ds_subset)
     if limit_val_set_per_ds is not None and limit_val_set_per_ds > 0:
         df_valid = ds_valid.to_pandas()
         df_valid = df_valid.groupby("source_ds").sample(limit_val_set_per_ds, random_state=0)
@@ -91,17 +108,17 @@ def main(
         ds_valid = ds_valid.map(add_instruction)
 
 
-    def preprocess(example):
-        inputs = tokenizer(example["question"], truncation=True)
-        labels = tokenizer(text_target=example["chain"], truncation=True, max_length=max_output_length)
+    def preprocess(example, label_col):
+        inputs = tokenizer(example[input_col], truncation=True)
+        labels = tokenizer(text_target=example[label_col], truncation=True, max_length=max_output_length)
         return {
             "input_ids": inputs.input_ids,
             "attention_mask": inputs.attention_mask,
             "labels": labels.input_ids,
         }
 
-    ds_train = ds_train.map(preprocess, batched=True)
-    ds_valid = ds_valid.map(preprocess, batched=True)
+    ds_train = ds_train.map(preprocess, batched=True, fn_kwargs={"label_col": train_label_col})
+    ds_valid = ds_valid.map(preprocess, batched=True, fn_kwargs={"label_col": valid_label_col})
     ds_train = ds_train.shuffle(seed=0)
 
     early_stopping = transformers.EarlyStoppingCallback(
@@ -111,11 +128,12 @@ def main(
 
     training_args = transformers.Seq2SeqTrainingArguments(
         output_dir=f"{checkpoint_dir}/{wandb.run.name}",
-        learning_rate=5e-5,
+        learning_rate=learning_rate,
         do_train=True,
         do_eval=True,
         warmup_steps=1000,
         max_steps=1_000_000,
+        optim=optim,
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=grad_accum,
         per_device_eval_batch_size=1,
