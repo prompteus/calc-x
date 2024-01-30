@@ -33,9 +33,11 @@ def main(
     save_total_limit: int = 10,
     eval_steps: int = 2000,
     save_steps: int = 2000,
-    early_stopping_patience: int = 3,
+    early_stopping_patience: int = 10,
     early_stopping_threshold: float = 0.03,
     learning_rate: float = 2e-5,
+    beta: float = 0.1,
+    dpo_loss_type: str = "sigmoid",
 ) -> None:
     cli_params = locals()
 
@@ -148,6 +150,8 @@ def main(
         callbacks=[early_stopping],
         max_target_length=max_output_length,
         max_prompt_length=512,
+        beta=beta,
+        loss_type=dpo_loss_type,
     )
 
     metrics.set_eval_ds_inputs(trainer.eval_dataset["prompt_input_ids"])

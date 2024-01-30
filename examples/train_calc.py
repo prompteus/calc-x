@@ -35,10 +35,12 @@ def main(
     batch_size: int = 1,
     grad_accum: int = 32,
     optim="adafactor",
-    save_total_limit: int = 10,
+    save_total_limit: int = 5,
     eval_steps: int = 2000,
     save_steps: int = 2000,
     learning_rate: float = 2e-5,
+    early_stopping_patience: int = 10,
+    early_stopping_threshold: float = 0.03,
 ) -> None:
     cli_params = locals()
 
@@ -122,8 +124,8 @@ def main(
     ds_train = ds_train.shuffle(seed=0)
 
     early_stopping = transformers.EarlyStoppingCallback(
-        early_stopping_patience=5,
-        early_stopping_threshold=0.01
+        early_stopping_patience=early_stopping_patience,
+        early_stopping_threshold=early_stopping_threshold,
     )
 
     training_args = transformers.Seq2SeqTrainingArguments(
