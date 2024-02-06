@@ -6,7 +6,7 @@ import torch
 import transformers
 import typer
 import wandb
-import rich.traceback
+import peft
 
 import gadgets
 
@@ -38,6 +38,9 @@ def main(
     learning_rate: float = 2e-5,
     beta: float = 0.1,
     dpo_loss_type: str = "sigmoid",
+    use_lora: bool = False,
+    lora_rank: int = 32,
+    lora_alpha: int = 32,
 ) -> None:
     cli_params = locals()
 
@@ -140,6 +143,17 @@ def main(
         source_ds_col=ds_valid["source_ds"],
     )
 
+
+    peft_config = None
+    if use_lora:
+        peft_config = peft.LoraConfig(
+            task_type=peft.TaskType.SEQ_2_SEQ_LM,
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            lora_dropout=0.1,
+            target_modules=[name for name, layer in model.named_modules() if isinstance(layer, torch.nn.Linear)]
+        )
+
     trainer = gadgets.dpo_trainer.DPOTrainer(
         model=model,
         args=training_args,
@@ -150,8 +164,10 @@ def main(
         callbacks=[early_stopping],
         max_target_length=max_output_length,
         max_prompt_length=512,
+        max_length=max_output_length + 512,
         beta=beta,
         loss_type=dpo_loss_type,
+        peft_config=peft_config,
     )
 
     metrics.set_eval_ds_inputs(trainer.eval_dataset["prompt_input_ids"])
