@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import bs4
 
 from gadgets.datatypes import Chain, Example, Interaction, Step
@@ -91,7 +93,33 @@ def to_model_markup(
     return soup
 
 
-def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | None]:
+def get_result_from_output_fallback(output: str) -> str:
+    results = re.findall("final result is (.+?)\.", output, flags=re.IGNORECASE)
+    if len(results) == 0:
+        return ""
+    # chopse last occurence if multiple exist
+    result: str = results[-1]
+    result = result.split("=")[0].strip()
+    return result
+
+
+def get_result_from_output(output: str) -> str:
+    # Fast regex search
+    match = re.search(f"<{RESULT_TAG}>(.+?)</{RESULT_TAG}>", output, flags=re.IGNORECASE)
+    if match is not None:
+        return match.group(1).strip()
+
+    # Slow html parsing
+    soup = bs4.BeautifulSoup(output, features="html.parser")
+    result_tag = soup.find(RESULT_TAG)
+
+    # Fallback for when the result tag is not found
+    if result_tag is None or result_tag.string is None:
+        return get_result_from_output_fallback(output)
+    return result_tag.string.strip()
+
+
+def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str]:
     if isinstance(markup, str):
         markup = bs4.BeautifulSoup(markup, features="html.parser")
     else:
@@ -99,7 +127,7 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
         markup = markup.copy()
 
     chain: Chain = []
-    result: str | None = None
+    result = ""
 
     # delete empty strings
     for item in markup.children:
@@ -136,9 +164,20 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str | Non
         elif item.name == OUTPUT_TAG:
             continue
         elif item.name == RESULT_TAG:
-            if item.string is None:
-                result = None
-            else:
+            if item.string is not None:
                 result = item.string.strip()
 
     return chain, result
+
+
+def strip_markup(markup: bs4.BeautifulSoup | str) -> str:
+    if isinstance(markup, str):
+        markup = bs4.BeautifulSoup(markup, features="html.parser")
+
+    text = ""
+    for elem in markup.children:
+        if isinstance(elem, bs4.NavigableString):
+            text += elem
+
+    return text
+
