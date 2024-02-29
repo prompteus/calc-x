@@ -12,8 +12,8 @@ readme = "README.md"
 
 python = ">=3.10,<3.13"
 
-torch = "2.1.1"
-xformers = "0.0.23" # must be selected according to torch version
+torch = "2.2.0"
+xformers = "0.0.24" # must be selected according to torch version
 loralib = "^0.1.1"
 
 transformers = "~4.36"
