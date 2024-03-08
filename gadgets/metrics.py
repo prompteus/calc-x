@@ -59,17 +59,21 @@ def are_results_same(pred_result, true_result, rel_tol: float = 1e-2):
     if isinstance(pred_result, pd.Series):
         if not isinstance(true_result, pd.Series):
             raise ValueError("Expected `true_result` to be a pandas Series")
-        return pd.Series(are_results_same(pred_result.tolist(), true_result.tolist(), rel_tol), index=pred_result.index)
+        df = pd.DataFrame({"p": pred_result.values, "t": true_result.values})
+        return df.apply(lambda row: scalar_are_results_same(row["p"], row["t"], rel_tol), axis=1)
     if isinstance(pred_result, np.ndarray):
         if not isinstance(true_result, np.ndarray):
             raise ValueError("Expected `true_result` to be a numpy array")
-        return np.array(are_results_same(pred_result.tolist(), true_result.tolist(), rel_tol))
+        return are_results_same(pd.Series(pred_result), pd.Series(true_result), rel_tol).to_numpy()
     raise ValueError("Expected `pred_result` to be a str, list, pandas Series or numpy array")
 
 
 def scalar_are_results_same(pred_result: str, true_result: str, rel_tol: float) -> bool:
     pred_result = str(pred_result) if pred_result is not None else ""
     true_result = str(true_result) if true_result is not None else ""
+    
+    if pred_result.strip() == true_result.strip():
+        return True
     
     if is_option_result(true_result):
         # The task is to select correct option
@@ -78,14 +82,9 @@ def scalar_are_results_same(pred_result: str, true_result: str, rel_tol: float) 
         return pred_result == true_result
     
     # The task is to calculate the result as a number
-
-    if pred_result.strip() == true_result.strip():
-        return True
-
-    calculator = gadgets.gadget.Calculator()
     try:
-        pred_float = calculator._float_eval(pred_result)
-        true_float = calculator._float_eval(true_result)
+        pred_float = gadgets.gadget.Calculator._float_eval(pred_result)
+        true_float = gadgets.gadget.Calculator._float_eval(true_result)
         return math.isclose(pred_float, true_float, rel_tol=rel_tol)
     except:
         pass
