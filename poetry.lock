@@ -2238,6 +2238,17 @@ files = [
 ]
 
 [[package]]
+name = "more-itertools"
+version = "10.2.0"
+description = "More routines for operating on iterables, beyond itertools"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "more-itertools-10.2.0.tar.gz", hash = "sha256:8fccb480c43d3e99a00087634c06dd02b0d50fbf088b380de5a41a015ec239e1"},
+    {file = "more_itertools-10.2.0-py3-none-any.whl", hash = "sha256:686b06abe565edfab151cb8fd385a05651e1fdf8f0a14191e4439283421f8684"},
+]
+
+[[package]]
 name = "mpmath"
 version = "1.3.0"
 description = "Python library for arbitrary-precision floating-point arithmetic"
@@ -4591,13 +4602,13 @@ testing-integration = ["build[virtualenv]", "filelock (>=3.4.0)", "jaraco.envs (
 
 [[package]]
 name = "shtab"
-version = "1.6.5"
+version = "1.7.0"
 description = "Automagic shell tab completion for Python CLI applications"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "shtab-1.6.5-py3-none-any.whl", hash = "sha256:3c7be25ab65a324ed41e9c2964f2146236a5da6e6a247355cfea56f65050f220"},
-    {file = "shtab-1.6.5.tar.gz", hash = "sha256:cf4ab120183e84cce041abeb6f620f9560739741dfc31dd466315550c08be9ec"},
+    {file = "shtab-1.7.0-py3-none-any.whl", hash = "sha256:0824f6f965cf5b6466d8870289c15a8973518820231a84f4422a0b8377261375"},
+    {file = "shtab-1.7.0.tar.gz", hash = "sha256:6661c2835d0214e259ab74d09bdb9a863752e898bcf2e75ad8cf7ebd7c35bc7e"},
 ]
 
 [package.extras]
@@ -4966,6 +4977,37 @@ opt-einsum = ["opt-einsum (>=3.3)"]
 optree = ["optree (>=0.9.1)"]
 
 [[package]]
+name = "torchdata"
+version = "0.7.1"
+description = "Composable data loading modules for PyTorch"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "torchdata-0.7.1-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:042db39edbc961c50a36c45b89aea4b099858140c13746c7cc7a87b1cc219d0c"},
+    {file = "torchdata-0.7.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:2d2c8482313dd52652caff99dc530433d898a12bb80bc33a0a4d1680d63272e0"},
+    {file = "torchdata-0.7.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:eed10b1f9265b30161a8cd129a96cfc7da202cfc70acf8b6a21fd29e18274ca3"},
+    {file = "torchdata-0.7.1-cp310-cp310-win_amd64.whl", hash = "sha256:36c591d0910ede6a496d4fccd389f27e7bccabf8b6a8722712ecf28b98bda8ae"},
+    {file = "torchdata-0.7.1-cp311-cp311-macosx_10_13_x86_64.whl", hash = "sha256:91a78c677a3e4e2447d888587f7ea0b4ddde81ca95adf709ba0d3dc9a4e9542d"},
+    {file = "torchdata-0.7.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:fa325d628aa6125c6b46b6fa27c94150ca9276edbba1042d3eb3cd9c1039b5a9"},
+    {file = "torchdata-0.7.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d256535648dfb94d1226f233768c6798d1841edfdbf0a09b2115e6cbbda614f9"},
+    {file = "torchdata-0.7.1-cp311-cp311-win_amd64.whl", hash = "sha256:7460a5fa298e7cd5cef98e8e6455d481e5c73d39a462a89a38918389c8153e20"},
+    {file = "torchdata-0.7.1-cp38-cp38-macosx_10_13_x86_64.whl", hash = "sha256:8ac74fc6ce8bf289b8d99ea183f78e1bf2a4754ea6a2b1dcb219095b0aaacb78"},
+    {file = "torchdata-0.7.1-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:8bbaecdbc1a7dc4a9d7dc7545ea4c12be92a3df8d2494f089e974e25591f514a"},
+    {file = "torchdata-0.7.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c1feae257e55b2942459a26f5597088e5daefabbd47a562081c01c0841a88e18"},
+    {file = "torchdata-0.7.1-cp38-cp38-win_amd64.whl", hash = "sha256:293e399f3988fcd8d24156188342e9265273787dc0a29b1b37891a1045eeaece"},
+    {file = "torchdata-0.7.1-cp39-cp39-macosx_10_13_x86_64.whl", hash = "sha256:53ef621460e2bc014069c126cbdcd325bf73d78836155a350767fe5f8ca29f11"},
+    {file = "torchdata-0.7.1-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:94ce50572550010db0431283b5d228f8727f779aafd9cbbbcdc37028a5085603"},
+    {file = "torchdata-0.7.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ba802128f50bfa227be107027e0230581b3a4ac70d14782b44662b7c71159cf1"},
+    {file = "torchdata-0.7.1-cp39-cp39-win_amd64.whl", hash = "sha256:432295d9d33a7497d3c4aee667998af5bd9dcf55bd10b77c6af1ac72249efe22"},
+    {file = "torchdata-0.7.1-py3-none-any.whl", hash = "sha256:9f9476a26987d90fa3f87cb09ec82b78ce6031ddcaa91851c9fa9f732a987ab8"},
+]
+
+[package.dependencies]
+requests = "*"
+torch = ">=2"
+urllib3 = ">=1.25"
+
+[[package]]
 name = "tornado"
 version = "6.3.3"
 description = "Tornado is a Python web framework and asynchronous networking library, originally developed at FriendFeed."
@@ -5115,14 +5157,12 @@ tutorials = ["matplotlib", "pandas", "tabulate", "torch"]
 
 [[package]]
 name = "trl"
-version = "0.7.9"
+version = "0.7.12.dev0"
 description = "Train transformer language models with reinforcement learning."
 optional = false
 python-versions = ">=3.7"
-files = [
-    {file = "trl-0.7.9-py3-none-any.whl", hash = "sha256:d451086b697dc3316ca2311cd4b57b91377e464382b664eb715c08b1054d1109"},
-    {file = "trl-0.7.9.tar.gz", hash = "sha256:939d81bbc06b8537d803c8a6f7c95a3dd53edce92c92e635ccb4ee8cc3603b93"},
-]
+files = []
+develop = false
 
 [package.dependencies]
 accelerate = "*"
@@ -5135,11 +5175,16 @@ tyro = ">=0.5.11"
 [package.extras]
 benchmark = ["deepspeed", "ghapi", "openrlbenchmark (==0.2.1a5)", "requests", "wandb"]
 deepspeed = ["deepspeed (>=0.9.5)"]
-dev = ["accelerate", "bitsandbytes (<=0.41.1)", "deepspeed", "deepspeed (>=0.9.5)", "diffusers (>=0.18.0)", "ghapi", "openrlbenchmark (==0.2.1a5)", "parameterized", "peft (>=0.4.0)", "pytest", "pytest-xdist", "requests", "wandb"]
 diffusers = ["diffusers (>=0.18.0)"]
 peft = ["peft (>=0.4.0)"]
 quantization = ["bitsandbytes (<=0.41.1)"]
-test = ["accelerate", "parameterized", "pytest", "pytest-xdist"]
+test = ["accelerate", "parameterized", "pytest", "pytest-cov", "pytest-xdist", "pytest-xdist"]
+
+[package.source]
+type = "git"
+url = "https://github.com/huggingface/trl.git"
+reference = "HEAD"
+resolved_reference = "4219cbfedcf27ef75754f87079c0d97b767f27f0"
 
 [[package]]
 name = "typer"
@@ -5175,13 +5220,13 @@ files = [
 
 [[package]]
 name = "tyro"
-version = "0.6.3"
+version = "0.7.3"
 description = "Strongly typed, zero-effort CLI interfaces"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "tyro-0.6.3-py3-none-any.whl", hash = "sha256:c8ed0a98dddbccd14499680b87fdd3a4d0b783615fb784d17a8faa854fdb71b6"},
-    {file = "tyro-0.6.3.tar.gz", hash = "sha256:ac1aca280dd4070e13b70913538caef7f338f8f19b5489b807245d87c350271d"},
+    {file = "tyro-0.7.3-py3-none-any.whl", hash = "sha256:4502347518b2364f9219486f9e6b97788146f67ee7900f3c499043c2c7c0be4b"},
+    {file = "tyro-0.7.3.tar.gz", hash = "sha256:d44fefe04b581714f7d59d8fc8efb1f373b366da16e5acce2074994c9da52187"},
 ]
 
 [package.dependencies]
@@ -5192,7 +5237,7 @@ shtab = ">=1.5.6"
 typing-extensions = ">=4.3.0"
 
 [package.extras]
-dev = ["PyYAML (>=6.0)", "attrs (>=21.4.0)", "coverage[toml] (>=6.5.0)", "flax (>=0.6.9)", "frozendict (>=2.3.4)", "mypy (>=1.4.1)", "numpy (>=1.20.0)", "omegaconf (>=2.2.2)", "pydantic (>=2.5.2)", "pyright (>=1.1.264)", "pytest (>=7.1.2)", "pytest-cov (>=3.0.0)", "ruff (>=0.1.7)", "torch (>=1.10.0)"]
+dev = ["PyYAML (>=6.0)", "attrs (>=21.4.0)", "coverage[toml] (>=6.5.0)", "flax (>=0.6.9)", "frozendict (>=2.3.4)", "mypy (>=1.4.1)", "numpy (>=1.20.0)", "omegaconf (>=2.2.2)", "pydantic (>=2.5.2)", "pyright (>=1.1.349)", "pytest (>=7.1.2)", "pytest-cov (>=3.0.0)", "ruff (>=0.1.13)", "torch (>=1.10.0)"]
 
 [[package]]
 name = "tzdata"
@@ -5501,4 +5546,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.13"
-content-hash = "8f9e2448942b065daa0c95922971f0dc679fc0e804b85fbaf748ecddd5a69da6"
+content-hash = "9a5199e56d345834b636b168376f384b5593188b8ae8c45af3e907b5ae33504e"
