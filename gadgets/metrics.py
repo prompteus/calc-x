@@ -35,7 +35,39 @@ def is_option_result(result: str) -> bool:
     return normalize_option(result) in list(string.ascii_letters)
 
 
-def are_results_same(pred_result: str, true_result: str, rel_tol: float = 1e-2) -> bool:
+@overload
+def are_results_same(pred_result: str, true_result: str, rel_tol: float) -> bool:
+    ...
+
+@overload
+def are_results_same(pred_result: list[str], true_result: list[str], rel_tol: float) -> list[bool]:
+    ...
+
+@overload
+def are_results_same(pred_result: pd.Series, true_result: pd.Series, rel_tol: float) -> pd.Series:
+    ...
+
+@overload
+def are_results_same(pred_result: np.ndarray, true_result: np.ndarray, rel_tol: float) -> np.ndarray:
+    ...
+
+def are_results_same(pred_result, true_result, rel_tol: float = 1e-2):
+    if isinstance(pred_result, str):
+        return scalar_are_results_same(pred_result, true_result, rel_tol)
+    if isinstance(pred_result, list):
+        return [scalar_are_results_same(pred, true, rel_tol) for pred, true in zip(pred_result, true_result)]
+    if isinstance(pred_result, pd.Series):
+        if not isinstance(true_result, pd.Series):
+            raise ValueError("Expected `true_result` to be a pandas Series")
+        return pd.Series(are_results_same(pred_result.tolist(), true_result.tolist(), rel_tol), index=pred_result.index)
+    if isinstance(pred_result, np.ndarray):
+        if not isinstance(true_result, np.ndarray):
+            raise ValueError("Expected `true_result` to be a numpy array")
+        return np.array(are_results_same(pred_result.tolist(), true_result.tolist(), rel_tol))
+    raise ValueError("Expected `pred_result` to be a str, list, pandas Series or numpy array")
+
+
+def scalar_are_results_same(pred_result: str, true_result: str, rel_tol: float) -> bool:
     pred_result = str(pred_result) if pred_result is not None else ""
     true_result = str(true_result) if true_result is not None else ""
     
