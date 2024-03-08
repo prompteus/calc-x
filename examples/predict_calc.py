@@ -6,8 +6,10 @@ import json
 import math
 import pathlib
 import sys
+import random
 import warnings
-from typing import Iterator, Optional
+import itertools
+from typing import Iterator, Optional, Iterable
 
 import datasets
 import numpy as np
@@ -38,23 +40,28 @@ def get_generation_config(
     ),
 )
 def main(
-    model_checkpoint: str = typer.Argument(...),
-    dataset_name: str = typer.Argument(...),
+    model_checkpoint: str,
+    dataset_name: str,
     split: str = typer.Option(...),
+    ds_subset: Optional[str] = None,
     output_jsonl: pathlib.Path = typer.Option(...),
     use_gadgets: bool = typer.Option(...),
     from_nth_example: int = -1,
     to_nth_example: int = -1,
     sample_n_examples: int = -1,
     num_preds_per_example: Optional[int] = None,
+    batch_size: int = 1,
     prediction_column: str = "prediction",
+    prediction_result_column: str = "prediction_result",
     question_column: str = "question",
-    result_column: str = typer.Option("result", help="Only required if counting (in-)correct predictions."),
+    template_column: str = "template",
+    result_column: str = typer.Option("result", help="Only required for displaying accuracy during prediction."),
     max_tokens: int = 768,
     instructions: Optional[str] = None,
-    n_correct_preds_per_example_is_enough: Optional[int] = None,
-    n_incorrect_preds_per_example_is_enough: Optional[int] = None,
-    sample_subset_seed: int = 0,
+    ignore_instruction_probs: bool = False,
+    seed: int = 0,
+    device: str = None,
+    dtype: str = None,
     generation_kwargs: typer.Context = ...,
 ) -> None:
     generation_kwargs = get_generation_config(
@@ -65,13 +72,21 @@ def main(
 
     command = " ".join(sys.argv)  # pylint: disable=unused-variable
 
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    if dtype is None:
+        if device == "cuda":
+            dtype = "bfloat16"
+        else:
+            dtype = "float32"
+
     pred_config = copy.deepcopy(locals())
 
-    if n_correct_preds_per_example_is_enough is None:
-        n_correct_preds_per_example_is_enough = math.inf
-
-    if n_incorrect_preds_per_example_is_enough is None:
-        n_incorrect_preds_per_example_is_enough = math.inf
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    transformers.set_seed(seed)
 
     if instructions is not None:
         instructions = datasets.load_dataset("MU-NLPC/Calc-X_instructions", split=instructions)
@@ -82,34 +97,9 @@ def main(
         else:
             num_preds_per_example = len(instructions)
 
-    if num_preds_per_example > 1 and not generation_kwargs.get("do_sample", False) and instructions is None:
+    if num_preds_per_example > 1 and not generation_kwargs.get("do_sample", False):
         warnings.warn(
             "num_preds_per_input > 1 but do_sample not set. This can result in duplicate predictions."
-        )
-
-    if n_correct_preds_per_example_is_enough < 0 or n_incorrect_preds_per_example_is_enough < 0:
-        raise ValueError(
-            "at_least_n_correct_preds_per_example and at_least_n_incorrect_preds_per_example must be non-negative."
-        )
-
-    if (
-        n_correct_preds_per_example_is_enough != math.inf
-        or n_incorrect_preds_per_example_is_enough != math.inf
-    ):
-        if num_preds_per_example > 1:
-            warnings.warn(
-                "num_preds_per_example > 1 but at_least_n_correct_preds_per_example or at_least_n_incorrect_preds_per_example is set. "
-                "num_preds_per_example will be interpreted as an upper bound on the number of predictions per example."
-            )
-
-    at_least_n_examples = low_bound_num_examples(
-        n_correct_preds_per_example_is_enough,
-        n_incorrect_preds_per_example_is_enough,
-    )
-
-    if at_least_n_examples > num_preds_per_example:
-        raise ValueError(
-            "num_preds_per_example must be at least as large as at_least_n_correct_preds_per_example + at_least_n_incorrect_preds_per_example."
         )
 
     if num_preds_per_example < 1:
@@ -124,17 +114,9 @@ def main(
         print(f"Output file {output_config_json} already exists, exiting.")
         exit()
 
-    must_verify = (
-        n_correct_preds_per_example_is_enough < math.inf or n_incorrect_preds_per_example_is_enough < math.inf
-    )
-
     dataset = datasets.load_dataset(dataset_name, split=split)
-
-    if must_verify and result_column not in dataset.column_names:
-        raise ValueError(
-            f"Column '{result_column}' does not exist in dataset '{dataset_name}'. "
-            f"It is required to count correct and incorrect predictions."
-        )
+    if ds_subset is not None:
+        dataset = dataset.filter(lambda x: x["source_ds"] == ds_subset)
 
     if prediction_column in dataset.column_names:
         raise ValueError(f"Column '{prediction_column}' already exists in dataset '{dataset_name}'.")
@@ -144,7 +126,7 @@ def main(
     if use_gadgets:
         model_class = gadgets.model.gadget_assisted_model(model_class)
 
-    model = model_class.from_pretrained(model_checkpoint)
+    model = model_class.from_pretrained(model_checkpoint, device_map=device, torch_dtype=getattr(torch, dtype)).eval()
 
     if use_gadgets:
         gadgets.utils.add_new_token(
@@ -176,13 +158,10 @@ def main(
     dataset = dataset.select(range(from_nth_example, to_nth_example))
 
     if sample_n_examples > 0:
-        rand_gen = torch.Generator().manual_seed(sample_subset_seed)
-        indices = torch.randperm(len(dataset), generator=rand_gen)[:sample_n_examples]
+        indices = torch.randperm(len(dataset))[:sample_n_examples]
         dataset = dataset.select(indices)
 
     generation_config = transformers.GenerationConfig(**generation_kwargs)
-
-    model = model.eval().to("cuda")
 
     with open(output_config_json, "w") as output_config_file:
         json.dump(
@@ -193,83 +172,104 @@ def main(
             indent=2,
         )
 
-    with (
-        torch.autocast(device_type="cuda", dtype=torch.bfloat16),
-        torch.no_grad(),
-        open(output_jsonl, "a") as output_file,
-    ):
-        n_total_preds = 0
+    progress = tqdm(dataset, desc="predicting")
+    examples = repeat_every_elem(progress, num_preds_per_example)
+    examples = batched(examples, batch_size)
+    template_stream = get_template_stream(instructions, ignore_instruction_probs)
 
-        for idx_example, example in enumerate(tqdm(dataset)):
-            predictions = []
+    num_total_preds = 0
+    num_correct_preds = 0
 
-            n_correct_preds = 0
-            n_incorrect_preds = 0
+    # reorder keys in output jsonl to compare results with prediction results on first glance
+    output_key_order = [
+        "id",
+        "source_ds",
+        result_column,
+        prediction_result_column,
+    ]
 
-            templates = get_template_stream(instructions)
+    with open(output_jsonl, "a") as output_file:
+        for batch in examples:
+            batch_templates = list(itertools.islice(template_stream, len(batch)))
+            inputs_str = [
+                template.format(example[question_column].strip())
+                for example, template in zip(batch, batch_templates)
+            ]
+            inputs = tokenizer(inputs_str, return_tensors="pt", padding=True, truncation=True)
+            preds = model.generate(**inputs.to(model.device), generation_config=generation_config)
+            preds_str = tokenizer.batch_decode(preds, skip_special_tokens=True, spaces_between_special_tokens=False)
 
-            for _, template in zip(range(num_preds_per_example), templates):
-                example = example.copy()
-                example["template"] = template
-
-                question = example[question_column].strip()
-                question = template.format(question)
-                inputs = tokenizer(question, return_tensors="pt").to(model.device)
-                outputs = model.generate(**inputs, generation_config=generation_config)[0]
-
-                prediction = tokenizer.decode(
-                    outputs,
-                    skip_special_tokens=True,
-                    spaces_between_special_tokens=False,
-                )
+            for example, template, prediction in zip(batch, batch_templates, preds_str):
                 pred_result = gadgets.markup.get_result_from_output(prediction)
 
-                predictions.append(prediction)
+                example_export = example.copy()
+                example_export[prediction_column] = prediction
+                example_export[prediction_result_column] = pred_result
+                example_export[template_column] = template
 
-                if must_verify:
-                    if gadgets.metrics.are_results_same(pred_result, example[result_column]):
-                        n_correct_preds += 1
-                    else:
-                        n_incorrect_preds += 1
+                if result_column is not None:
+                    true_result = example[result_column]
+                    if gadgets.metrics.are_results_same(true_result, pred_result):
+                        num_correct_preds += 1
+                num_total_preds += 1
+               
+                json.dump(reorder_keys(example_export, output_key_order), output_file, ensure_ascii=False)
+                output_file.write("\n")
 
-                    if (
-                        n_correct_preds >= n_correct_preds_per_example_is_enough
-                        and n_incorrect_preds >= n_incorrect_preds_per_example_is_enough
-                    ):
-                        break
-
-            example[prediction_column] = predictions
-            n_total_preds += len(predictions)
-
-            if must_verify:
-                print(f"current predictions for last example: {n_correct_preds=}, {n_incorrect_preds=}")
-                print(f"avg number of predictions per example: {n_total_preds / (idx_example + 1):.2f}")
-
-            json.dump(example, output_file, ensure_ascii=False)
-            output_file.write("\n")
             output_file.flush()
+            accuracy = num_correct_preds / num_total_preds
+            progress.set_description(f"{accuracy=:.2%}  predicting")
+
+
+def reorder_keys(
+    dictionary: dict,
+    keys: list[str],
+) -> dict:
+    out = {key: dictionary[key] for key in keys if key in dictionary}
+    for key, value in dictionary.items():
+        if key not in keys:
+            out[key] = value
+    return out
+
+
+def repeat_every_elem(
+    iterable: Iterable,
+    n: int,
+) -> Iterator:
+    for item in iterable:
+        for _ in range(n):
+            yield item
+
+
+def batched(
+    iterable: Iterable,
+    batch_size: int,
+) -> Iterator:
+    batch = []
+    for item in iterable:
+        batch.append(item)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 def get_template_stream(
     instructions: datasets.Dataset | None,
-    random_seed: int | None = None,
+    ignore_probs: bool,
 ) -> Iterator[str]:
-    """
-    First, it yields all templates in a random order. Then, it yields
-    templates sampled accordingly to their probabilites.
-    """
-
     if instructions is None:
         while True:
             yield "{}"
-    else:
-        random_generator = np.random.default_rng(random_seed)
+    elif ignore_probs:
         templates = instructions["template"].copy()
-        random_generator.shuffle(templates)
-        yield from templates
-
+        np.random.shuffle(templates)
         while True:
-            yield random_generator.choice(instructions["template"], p=instructions["weight"])
+            yield from templates
+    else:
+        while True:
+            yield np.random.choice(instructions["template"], p=instructions["weight"])
 
 
 def low_bound_num_examples(
