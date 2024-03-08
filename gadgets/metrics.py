@@ -128,6 +128,7 @@ class MonitorMetrics:
         source_ds_col: list[str],
         eval_ds_inputs: list[list[int]],
         log_predictions: bool,
+        define_wandb_metrics: bool = False,
     ) -> None:
         self.sbleu = evaluate.load("sacrebleu")
         self.rouge = evaluate.load("rouge")
@@ -136,6 +137,8 @@ class MonitorMetrics:
         self.source_ds_col = source_ds_col
         self.expected_input_tokens = None
         self.set_eval_ds_inputs(eval_ds_inputs)
+        if define_wandb_metrics:
+            self.define_wandb_metrics()
 
     def set_eval_ds_inputs(self, eval_ds_inputs: list[list[int]]) -> None:
         if eval_ds_inputs is None:
@@ -143,6 +146,11 @@ class MonitorMetrics:
         self.expected_input_tokens = remove_padding(eval_ds_inputs, self.tokenizer.pad_token_id)
         if len(self.expected_input_tokens) != len(self.source_ds_col):
             raise ValueError("Length of eval_ds_inputs and source_ds_col must be equal")
+
+    def define_wandb_metrics(self) -> None:
+        wandb.define_metric("avg_correct_results", summary="max")
+        for ds_name in set(self.source_ds_col):
+            wandb.define_metric(f"{ds_name}__correct_results", summary="max")
 
     def __call__(self, eval_preds: transformers.EvalPrediction) -> Dict[str, float]:
         assert len(eval_preds.predictions) == len(self.source_ds_col), \
