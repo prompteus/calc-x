@@ -38,13 +38,13 @@ def main(
     if not isinstance(df[prediction_column].iloc[0], str):
         # previously, prediction script would output a list of predictions
         # instead of putting each prediction in a separate row
-        df = df.explode(prediction_column).dropna(subset=[prediction_column])
+        df = df.explode(prediction_column).dropna(subset=[prediction_column]).reset_index(drop=True)
 
     true_results: pd.Series = df[correct_column]
     pred_outputs: pd.Series = df[prediction_column]
     pred_results = pred_outputs.apply(gadgets.markup.get_result_from_output)
-    is_correct = [gadgets.metrics.are_results_same(pred, true) for pred, true in zip(pred_results, true_results)]
-    is_correct = np.array(is_correct).astype(float)
+    is_correct = gadgets.metrics.are_results_same(pred_results, true_results)
+    is_correct = is_correct.to_numpy().astype(float)
 
     print_info("OVERALL", is_correct, confidence_level)
     print()
