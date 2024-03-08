@@ -28,6 +28,7 @@ def main(
     rejected_col: str = "incorrect_1",
     max_output_length: int = 756,
     batch_size: int = 1,
+    eval_batch_size: int = 8,
     grad_accum: int = 32,
     optim="adafactor",
     save_total_limit: int = 10,
@@ -91,8 +92,8 @@ def main(
         max_steps=1_000_000,
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=grad_accum,
-        per_device_eval_batch_size=1,
-        eval_accumulation_steps=16,
+        per_device_eval_batch_size=eval_batch_size,
+        eval_accumulation_steps=1,
         optim=optim,
         logging_steps=10,
         eval_steps=eval_steps,
@@ -120,6 +121,7 @@ def main(
     else:
         ds_train = ds_train.rename_column(rejected_col, "rejected")
     ds_train = ds_train.select_columns(["prompt", "chosen", "rejected"])
+    ds_train = ds_train.shuffle(seed=0)
 
     ds_valid: datasets.Dataset
     ds_valid = datasets.load_dataset(valid_ds, split="validation")
@@ -130,8 +132,8 @@ def main(
         df_valid = df_valid.groupby("source_ds").sample(limit_val_set_per_ds, random_state=0)
         ds_valid = datasets.Dataset.from_pandas(df_valid)
         ds_valid = ds_valid.rename_columns({
-            "question": "prompt",
-            "chain": "chosen",
+            prompt_col: "prompt",
+            chosen_col: "chosen",
         })
         ds_valid = ds_valid.map(lambda x: {"rejected": ""})
 
