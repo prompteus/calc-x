@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 import unittest.mock
 import warnings
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, List, Optional
 
 import bs4
 import torch
+import numpy as np
+import pandas as pd
 import transformers
 from transformers import GenerationConfig, LogitsProcessorList, StoppingCriteriaList
 
@@ -16,19 +19,30 @@ from gadgets.markup import GADGET_TAG, OUTPUT_TAG, RESULT_TAG
 class StopAfterGadgetCall(transformers.generation.StoppingCriteria):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer) -> None:
         self.tokenizer = tokenizer
-        self.closing_tag_ids = self.tokenizer(
+        self.closing_tag_ids: torch.Tensor = self.tokenizer(
             "</" + GADGET_TAG + ">", add_special_tokens=False, return_tensors="pt"
         ).input_ids.flatten()
+        self.mask = torch.tensor([])
 
-    def __call__(self, seq_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+    def __call__(self, seq_ids: torch.Tensor, scores: torch.Tensor, **kwargs) -> bool:
         if seq_ids.shape[-1] < self.closing_tag_ids.shape[-1]:
             return False
 
         # check if </gadget> is at the end of the sequence
         self.closing_tag_ids = self.closing_tag_ids.to(seq_ids.device)
         ending = seq_ids[..., -self.closing_tag_ids.shape[-1] :]
-        ends_with_gadget_call = torch.all(ending == self.closing_tag_ids)
-        return ends_with_gadget_call
+        self.mask = (ending == self.closing_tag_ids).all(dim=-1)
+        return self.mask.any()
+
+
+@contextlib.contextmanager
+def set_padding_side(tokenizer: transformers.PreTrainedTokenizer, side: str):
+    original_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = side
+    try:
+        yield
+    finally:
+        tokenizer.padding_side = original_padding_side
 
 
 class GadgetAssist(transformers.GenerationMixin):
@@ -56,7 +70,8 @@ class GadgetAssist(transformers.GenerationMixin):
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
         synced_gpus: Optional[bool] = None,
-        streamer: Optional["BaseStreamer"] = None,
+        streamer: Optional[transformers.generation.streamers.BaseStreamer] = None,
+        #cache_encoder_output: bool = False,
         **kwargs,
         # signature of GenerationMixin.generate() in Transformers==4.28.1, with inputs<=>input_ids
     ) -> torch.LongTensor:
@@ -66,24 +81,14 @@ class GadgetAssist(transformers.GenerationMixin):
         and the output is fed back into the model inside of an output tag.
 
         Final result is expected to be in result tag.
-
-        Currently the function only supports single input (no batch).
-
-        Returns:
-            full_output: Full structured output of the model, including gadget, output, and result tags.
-            result: Final result of the model, or None if not found.
         """
+        assert isinstance(self, transformers.PreTrainedModel)
 
-        stopping_criteria = transformers.generation.StoppingCriteriaList(
-            [StopAfterGadgetCall(self.tokenizer)]
-        )
+        stop_after_gadget_call = StopAfterGadgetCall(self.tokenizer)
+        stopping_criteria = transformers.generation.StoppingCriteriaList([stop_after_gadget_call])
 
         if kwargs is None:
             kwargs = {}
-
-        if isinstance(input_ids, str):
-            input_ids = self.tokenizer(input_ids, return_tensors="pt").input_ids
-        input_ids = input_ids.to(self.device)
 
         running_gadgets: dict[str, Gadget] = {g.gadget_id(): g for g in self.enabled_gadgets}
 
@@ -106,21 +111,33 @@ class GadgetAssist(transformers.GenerationMixin):
         if max_tokens is None:
             max_tokens = self.default_max_tokens
 
-        last_num_total_tokens: int | None = None
-        total_output_str: str = ""
-        result_str = None
+        outputs_str = pd.Series([""] * input_ids.shape[0])
+
+        # if self.config.is_encoder_decoder and cache_encoder_output:
+        #     encoder_outputs = self.get_encoder()(input_ids)
+        # else:
+        #     encoder_outputs = None
+
+        runnings = np.array([True] * input_ids.shape[0], dtype=bool)
+        decoder_start_token = self.tokenizer.convert_ids_to_tokens(self.config.decoder_start_token_id)
+        attention_mask = kwargs.pop("attention_mask", None)
 
         while True:
-            total_output_encoded = (
-                self.tokenizer(text_target=total_output_str, add_special_tokens=False, return_tensors="pt")
-                .input_ids.to(self.device)
-                .to(torch.long)
-            )
-
-            num_total_tokens = total_output_encoded.shape[-1]
-            if last_num_total_tokens is not None and num_total_tokens <= last_num_total_tokens:
+            if not runnings.any():
                 break
-            last_num_total_tokens = num_total_tokens
+
+            with set_padding_side(self.tokenizer, "left"):
+                encoded = self.tokenizer(
+                    text_target=(decoder_start_token + outputs_str[runnings]).tolist(),
+                    add_special_tokens=False,
+                    return_tensors="pt",
+                    padding="longest",
+                    return_attention_mask=True,
+                ).to(self.device)
+            decoder_input_ids = encoded.input_ids.to(self.device)
+            decoder_attention_mask = encoded.attention_mask.to(self.device)
+
+            num_total_tokens = decoder_input_ids.shape[-1]
 
             if num_total_tokens + 2 >= max_tokens:
                 break
@@ -130,96 +147,85 @@ class GadgetAssist(transformers.GenerationMixin):
             if min_tokens is not None:
                 kwargs["min_new_tokens"] = max(0, min_tokens - num_total_tokens)
 
-            decoder_input_ids = torch.cat(
-                [
-                    torch.tensor(self.config.decoder_start_token_id, dtype=torch.long)
-                    .to(self.device)
-                    .reshape(1, 1),
-                    total_output_encoded,
-                ],
-                dim=-1,
-            )
-
-            model_output: transformers.utils.ModelOutput
+            # if encoder_outputs is not None:
+            #     encoder_outputs_curr = encoder_outputs.copy()
+            #     for key, tensor in encoder_outputs_curr.items():
+            #         encoder_outputs_curr[key] = tensor[runnings]
+            #     encoder_kwargs = {"encoder_outputs": encoder_outputs_curr}
+            # else:
+            #     encoder_kwargs = {"input_ids": input_ids[runnings]}
+            
             model_output = super().generate(
-                input_ids=input_ids,
-                stopping_criteria=stopping_criteria,
+                input_ids=input_ids[runnings],
+            #    **encoder_kwargs,
+                attention_mask=attention_mask[runnings] if attention_mask is not None else None,
                 decoder_input_ids=decoder_input_ids,
+                decoder_attention_mask=decoder_attention_mask,
+                stopping_criteria=stopping_criteria,
                 generation_config=generation_config,
                 **kwargs,
-            )[
-                0
-            ]  # TODO This does not work in batch mode
-            # which occurs in evaluation during training
+            )
 
-            # model.generate() outputs starts with decoder_input_ids
-            total_output_str = self.tokenizer.decode(
+            outputs_str[runnings] = self.tokenizer.batch_decode(
                 model_output,
                 skip_special_tokens=True,
                 spaces_between_special_tokens=False,
             )
 
-            try:
-                doc = bs4.BeautifulSoup(total_output_str, features="html.parser")
-            except Exception as e:
-                warnings.warn(f"Failed to parse model output: {e}")
-                continue
+            curr_seq_idxs = np.arange(input_ids.shape[0])[runnings]
 
-            gadget_tags: list[bs4.Tag] = doc.find_all(GADGET_TAG)
-            evaluated_something = False
-            for gadget_tag_input in gadget_tags:
-                next_el = gadget_tag_input.next_sibling
-                while (
-                    next_el is not None and isinstance(next_el, bs4.NavigableString) and next_el.strip() == ""
-                ):
-                    # skip whitespace
-                    next_el = next_el.next_sibling
-                if isinstance(next_el, bs4.Tag) and next_el.name == OUTPUT_TAG:
-                    # already evaluated this gadget tag
-                    continue
-                evaluated_something = True
-                gadget_input = gadget_tag_input.get_text()
-                gadget_id = gadget_tag_input.get("id", None)
-                gadget = running_gadgets.get(gadget_id, None)
-                if gadget is None:
-                    gadget_output = f"ERROR: Gadget '{gadget_id}' not found"
-                else:
-                    gadget_output = gadget(gadget_input)
+            for curr_seq_idx, glob_seq_idx in enumerate(curr_seq_idxs):
+                if stop_after_gadget_call.mask[curr_seq_idx]:
+                    try:
+                        doc = bs4.BeautifulSoup(outputs_str[glob_seq_idx], features="html.parser")
+                    except Exception as e:
+                        warnings.warn(f"Failed to parse model output: {e}")
+                        continue
 
-                gadget_tag_output = doc.new_tag(OUTPUT_TAG)
-                gadget_tag_output.string = gadget_output
-                gadget_tag_input.insert_after(gadget_tag_output)
-                gadget_tag_input.insert_after("\n")
-                gadget_tag_output.insert_after("\n")
+                    gadget_tags: list[bs4.Tag] = doc.find_all(GADGET_TAG)
+                    evaluated_something = False
+                    for gadget_tag_input in gadget_tags:
+                        next_el = gadget_tag_input.next_sibling
+                        while (
+                            next_el is not None and isinstance(next_el, bs4.NavigableString) and next_el.strip() == ""
+                        ):
+                            # skip whitespace
+                            next_el = next_el.next_sibling
+                        if isinstance(next_el, bs4.Tag) and next_el.name == OUTPUT_TAG:
+                            # already evaluated this gadget tag
+                            continue
+                        evaluated_something = True
+                        gadget_input = gadget_tag_input.get_text()
+                        gadget_id = gadget_tag_input.get("id", None)
+                        gadget = running_gadgets.get(gadget_id, None)
+                        if gadget is None:
+                            gadget_output = f"ERROR: Gadget '{gadget_id}' not found"
+                        else:
+                            gadget_output = gadget(gadget_input)
 
-            if evaluated_something:
-                # replace total_output_str with the evaluated version
-                total_output_str = str(doc)
+                        gadget_tag_output = doc.new_tag(OUTPUT_TAG)
+                        gadget_tag_output.string = gadget_output
+                        gadget_tag_input.insert_after(gadget_tag_output)
+                        gadget_tag_input.insert_after("\n")
+                        gadget_tag_output.insert_after("\n")
 
-            # width = 80
-            # print(" PARTIAL MODEL OUTPUT ".center(width, "="))
-            # print(total_output_str)
-            # print("=" * width)
+                    if evaluated_something:
+                        # replace outputs_str with the evaluated version
+                        outputs_str[glob_seq_idx] = str(doc)
+                        
+                elif self.tokenizer.eos_token_id in model_output[curr_seq_idx]:
+                    runnings[glob_seq_idx] = False
 
-            output_tensor = self.tokenizer.encode(
-                total_output_str, return_tensors="pt", add_special_tokens=True
-            ).to(self.device)
+        with set_padding_side(self.tokenizer, "left"):
+            outputs_tensor = self.tokenizer(
+                text=[""] * input_ids.shape[0],
+                text_target=(decoder_start_token + outputs_str).tolist(),
+                return_tensors="pt",
+                padding="longest",
+                add_special_tokens=True,
+            ).labels.to(self.device)
 
-            # Commented things violate the generate() interface and may cause trouble in future versions:
-
-            # if doc.find(RESULT_TAG) is not None:
-            #     result_str = doc.find_all(RESULT_TAG)[-1].get_text()
-            #     result_tensor = self.tokenizer(result_str, return_tensors="pt", add_special_tokens=False).input_ids
-
-        # if return_as_str:
-        #     if return_result:
-        #         return total_output_str, result_str
-        #     return total_output_str
-        #
-        # if return_result:
-        #     return output_tensor, result_tensor
-
-        return output_tensor
+        return outputs_tensor
 
 
 def gadget_assisted_model(model_class: type[transformers.PreTrainedModel]):
