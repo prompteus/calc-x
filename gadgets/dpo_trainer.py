@@ -148,7 +148,7 @@ class DPOTrainer(Seq2SeqTrainer):
         ref_model: Optional[Union[PreTrainedModel, nn.Module, str]] = None,
         beta: float = 0.1,
         label_smoothing: float = 0,
-        loss_type: Literal["sigmoid", "hinge", "ipo", "kto"] = "sigmoid",
+        loss_type: Literal["sigmoid", "hinge", "ipo", "kto_pair"] = "sigmoid",
         args: Seq2SeqTrainingArguments = None,
         data_collator: Optional[DataCollator] = None,
         label_pad_token_id: int = -100,

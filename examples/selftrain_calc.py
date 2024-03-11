@@ -1,5 +1,6 @@
 import gc
 import random
+import enum
 from typing import Optional
 
 import datasets
@@ -14,8 +15,13 @@ import wandb
 import gadgets.selftrain
 import gadgets.dpo_trainer
 
+class Mode(str, enum.Enum):
+    dpo = "dpo"
+    sft = "sft"
+    kto = "kto"
 
 def main(
+    mode: Mode = typer.Option(...),
     model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-128k",
     wandb_entity: str = "transformersclub",
     wandb_project: str = "gadgets",
@@ -47,6 +53,8 @@ def main(
     save_total_limit: int = 3,
     eval_steps: int = 4, # TODO 2000
     save_steps: int = 2000,
+    dpo_loss_type: str = "sigmoid",
+    beta: float = 0.1,
 ) -> None:
     cli_params = locals()
 
@@ -62,7 +70,7 @@ def main(
     wandb.init(
         entity=wandb_entity,
         project=wandb_project,
-        tags=[model_name, "selftrain"],
+        tags=[model_name, "selftrain", str(mode)],
         group=wandb_group,
         dir=wandb_dir,
     )
@@ -95,7 +103,7 @@ def main(
     if limit_train_set_per_ds is not None and limit_train_set_per_ds > 0:
         df_train = ds_train.to_pandas()
         df_train = df_train.groupby("source_ds").sample(limit_train_set_per_ds, random_state=0)
-        ds_train = datasets.Dataset.from_pandas(df_train)
+        ds_train = datasets.Dataset.from_pandas(df_train, preserve_index=False)
     
     ds_valid: datasets.Dataset
     ds_valid = datasets.load_dataset(valid_ds, split=valid_ds_split_name)
@@ -104,13 +112,27 @@ def main(
     if limit_val_set_per_ds is not None and limit_val_set_per_ds > 0:
         df_valid = ds_valid.to_pandas()
         df_valid = df_valid.groupby("source_ds").sample(limit_val_set_per_ds, random_state=0)
-        ds_valid = datasets.Dataset.from_pandas(df_valid)
-        ds_valid = ds_valid.rename_columns({
-            prompt_col: "prompt",
-            chain_col: "chosen",
-        })
-        ds_valid = ds_valid.map(lambda x: {"rejected": ""})
-    
+        ds_valid = datasets.Dataset.from_pandas(df_valid, preserve_index=False)
+
+    match mode:
+        case Mode.dpo:
+            ds_valid = ds_valid.rename_columns({
+                prompt_col: "prompt",
+                chain_col: "chosen",
+            })
+            ds_valid = ds_valid.map(lambda x: {"rejected": ""})
+        case Mode.sft:
+            def preprocess(example):
+                inputs = tokenizer(example[prompt_col], truncation=True)
+                labels = tokenizer(text_target=example[chain_col], truncation=True, max_length=max_output_length)
+                return {
+                    "input_ids": inputs.input_ids,
+                    "attention_mask": inputs.attention_mask,
+                    "labels": labels.input_ids,
+                }
+            ds_valid = ds_valid.map(preprocess, batched=True)
+        case Mode.kto:
+            raise NotImplementedError("binary KTO is not implemented yet. For KTO on preference pairs, use DPO mode with dpo_loss_type='kto_pair'")
 
     experience_collector = gadgets.selftrain.ExperienceCollector(
         problem_ids=ds_train[id_col],
@@ -131,43 +153,9 @@ def main(
         num_preds_per_problem=num_predictions_per_example,
     )
 
-    num_pairs_tracker = gadgets.selftrain.NumPairsTracker(
-        rolling_window_size=1024,
-        report_after_every_n_problems=10,
-        use_stdout=False,
-        use_wandb=True,
-    )
-
     experience_logger = gadgets.selftrain.ExperienceLogger(
         log_file=f"{prediction_log_folder}/{wandb.run.name}.jsonl",
         print_to_stdout=False,
-    )
-
-    make_preferences = gadgets.selftrain.MakePreferencePairs(
-        random_gen=random.Random(0),
-        target_min_pairs=32,
-        max_oversample_accepted=4,
-        max_pairs=None,
-    )
-
-    dpo_preprocess = gadgets.selftrain.DPOPreprocessor()
-        
-    pipe: torchdata.datapipes.iter.IterDataPipe
-    # .batch().in_batch_shuffle().unbatch() is different from .shuffle(buffer_size=buffer_size)
-    # because in .shuffle elements are sampled from the buffer
-    # and can (with low probability) be stuck there for a long time
-    pipe = torchdata.datapipes.iter.IterableWrapper(experience_collector, deepcopy=False)
-    pipe = (
-        pipe
-        .map(as_side_effect(success_tracker))
-        .map(as_side_effect(experience_logger))
-        .map(make_preferences)
-        .map(as_side_effect(num_pairs_tracker))
-        .flatmap()
-        .batch(buffer_size)
-        .in_batch_shuffle()
-        .unbatch()
-        .map(dpo_preprocess)
     )
 
     metrics = gadgets.metrics.MonitorMetrics(
@@ -206,20 +194,84 @@ def main(
         save_total_limit=save_total_limit,
     )
 
-    trainer = gadgets.dpo_trainer.DPOTrainer(
-        model=model,
-        args=training_args,
-        tokenizer=tokenizer,
-        train_dataset=pipe,
-        eval_dataset=ds_valid,
-        compute_metrics=metrics,
-        max_target_length=max_output_length,
-        max_prompt_length=512,
-        max_length=max_output_length + 512,
-    )
+    trainer: transformers.Seq2SeqTrainer
+    pipe: torchdata.datapipes.iter.IterDataPipe
+    pipe = torchdata.datapipes.iter.IterableWrapper(experience_collector, deepcopy=False)
+
+    match mode:
+        case Mode.dpo:
+            num_pairs_tracker = gadgets.selftrain.NumPairsTracker(
+                rolling_window_size=1024,
+                report_after_every_n_problems=10,
+                use_stdout=False,
+                use_wandb=True,
+            )
+
+            make_preferences = gadgets.selftrain.MakePreferencePairs(
+                random_gen=random.Random(0),
+                target_min_pairs=32,
+                max_oversample_accepted=4,
+                max_pairs=None,
+            )
+
+            # .batch().in_batch_shuffle().unbatch() is different from .shuffle(buffer_size=buffer_size)
+            # because in .shuffle elements are sampled from the buffer
+            # and can (with low probability) be stuck there for a long time
+            pipe = (
+                pipe
+                .map(as_side_effect(success_tracker))
+                .map(as_side_effect(experience_logger))
+                .map(make_preferences)
+                .map(as_side_effect(num_pairs_tracker))
+                .flatmap()
+                .batch(buffer_size)
+                .in_batch_shuffle()
+                .unbatch()
+                .map(gadgets.selftrain.DPOPreprocessor())
+            )
+
+            trainer = gadgets.dpo_trainer.DPOTrainer(
+                model=model,
+                args=training_args,
+                tokenizer=tokenizer,
+                train_dataset=pipe,
+                eval_dataset=ds_valid,
+                compute_metrics=metrics,
+                max_target_length=max_output_length,
+                max_prompt_length=512,
+                max_length=max_output_length + 512,
+                loss_type=dpo_loss_type,
+                beta=beta
+            )
+            metrics.set_eval_ds_inputs(trainer.eval_dataset["prompt_input_ids"])
+
+        case Mode.sft:
+            pipe = (
+                pipe
+                .map(as_side_effect(success_tracker))
+                .map(as_side_effect(experience_logger))
+                .flatmap()
+                .batch(buffer_size)
+                .in_batch_shuffle()
+                .unbatch()
+                .map(gadgets.selftrain.SFTPreprocessor(tokenizer))
+            )
+            data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model)
+            trainer = transformers.Seq2SeqTrainer(
+                model=model,
+                args=training_args,
+                train_dataset=pipe,
+                eval_dataset=ds_valid,
+                tokenizer=tokenizer,
+                data_collator=data_collator,
+                compute_metrics=metrics,
+            )
+            metrics.set_eval_ds_inputs(ds_valid["input_ids"])
+
+        case Mode.kto:
+            raise NotImplementedError("binary KTO is not implemented yet. For KTO on preference pairs, use DPO mode with dpo_loss_type='kto_pair'")
 
     experience_collector.set_trainer(trainer)
-    metrics.set_eval_ds_inputs(trainer.eval_dataset["prompt_input_ids"])
 
     trainer.train()
 
