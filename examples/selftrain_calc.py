@@ -1,3 +1,4 @@
+import os
 import gc
 import random
 import enum
@@ -36,7 +37,7 @@ def main(
     valid_ds: str = "MU-NLPC/Calc-X",
     valid_ds_split_name: str = "validation",
     valid_ds_subset: Optional[str] = None,
-    limit_val_set_per_ds: int = 4, # TODO 100
+    limit_val_set_per_ds: int = 100,
     id_col: str = "id",
     prompt_col: str = "question",
     chain_col: str = "chain",
@@ -48,11 +49,11 @@ def main(
     prediction_batch_size: int = 8,
     num_predictions_per_example: int = 16,
     sample_least_successful_with_prob: float = 0.5,
-    buffer_size: int = 8, # TODO 1024
+    buffer_size: int = 2048,
     optim: str = "adafactor",
     save_total_limit: int = 3,
-    eval_steps: int = 4, # TODO 2000
-    save_steps: int = 2000,
+    eval_steps: int = 1000,
+    save_steps: int = 1000,
     dpo_loss_type: str = "sigmoid",
     beta: float = 0.1,
     prefs_target_min_pairs_per_problem: int = 32,
@@ -60,7 +61,7 @@ def main(
     prefs_max_pairs_per_problem: Optional[int] = None,
     sft_target_min_examples_per_problem: int = 32,
     sft_max_oversample_per_problem: int = 4,
-    sft_max_examples_per_problem: Optional[int] = None,
+    sft_max_examples_per_problem: Optional[int] = 32,
 ) -> None:
     cli_params = locals()
 
@@ -159,6 +160,7 @@ def main(
         num_preds_per_problem=num_predictions_per_example,
     )
 
+    os.makedirs(prediction_log_folder, exist_ok=True)
     experience_logger = gadgets.selftrain.ExperienceLogger(
         log_file=f"{prediction_log_folder}/{wandb.run.name}.jsonl",
         print_to_stdout=False,
