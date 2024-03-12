@@ -128,13 +128,13 @@ class MakeSFTExamples:
     def __init__(
         self,
         random_gen: random.Random,
-        target_min_examples: int | None = None,
-        max_examples: int | None = None,
+        target_min_examples_per_problem: int | None = None,
+        max_examples_per_problem: int | None = None,
         max_oversample: int | None = None,
     ):
         self.random_gen = random_gen
-        self.target_min_examples = target_min_examples
-        self.max_examples = max_examples
+        self.target_min_examples = target_min_examples_per_problem
+        self.max_examples = max_examples_per_problem
         self.max_oversample = max_oversample
         if self.target_min_examples is not None and self.max_examples is not None and self.target_min_examples > self.max_examples:
             raise ValueError("target_min_examples must be less than or equal to max_examples")

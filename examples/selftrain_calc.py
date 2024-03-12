@@ -55,6 +55,12 @@ def main(
     save_steps: int = 2000,
     dpo_loss_type: str = "sigmoid",
     beta: float = 0.1,
+    prefs_target_min_pairs_per_problem: int = 32,
+    prefs_max_oversample_accepted_per_problem: int = 4,
+    prefs_max_pairs_per_problem: Optional[int] = None,
+    sft_target_min_examples_per_problem: int = 32,
+    sft_max_oversample_per_problem: int = 4,
+    sft_max_examples_per_problem: Optional[int] = None,
 ) -> None:
     cli_params = locals()
 
@@ -178,7 +184,7 @@ def main(
         per_device_eval_batch_size=prediction_batch_size,
         eval_accumulation_steps=1,
         optim=optim,
-        logging_steps=1, # TODO 10
+        logging_steps=5,
         eval_steps=eval_steps,
         save_steps=save_steps,
         evaluation_strategy="steps",
@@ -201,17 +207,17 @@ def main(
     match mode:
         case Mode.dpo:
             num_pairs_tracker = gadgets.selftrain.NumPairsTracker(
-                rolling_window_size=1024,
-                report_after_every_n_problems=10,
+                rolling_window_size=128,
+                report_after_every_n_problems=1,
                 use_stdout=False,
                 use_wandb=True,
             )
 
             make_preferences = gadgets.selftrain.MakePreferencePairs(
                 random_gen=random.Random(0),
-                target_min_pairs=32,
-                max_oversample_accepted=4,
-                max_pairs=None,
+                target_min_pairs=prefs_target_min_pairs_per_problem,
+                max_oversample_accepted=prefs_max_oversample_accepted_per_problem,
+                max_pairs=prefs_max_pairs_per_problem
             )
 
             # .batch().in_batch_shuffle().unbatch() is different from .shuffle(buffer_size=buffer_size)
@@ -243,20 +249,31 @@ def main(
                 loss_type=dpo_loss_type,
                 beta=beta
             )
+            
             metrics.set_eval_ds_inputs(trainer.eval_dataset["prompt_input_ids"])
 
         case Mode.sft:
+            make_sft_examples = gadgets.selftrain.MakeSFTExamples(
+                random_gen=random.Random(0),
+                target_min_examples_per_problem=sft_target_min_examples_per_problem,
+                max_examples_per_problem=sft_max_examples_per_problem,
+                max_oversample=sft_max_oversample_per_problem,
+            )
+
             pipe = (
                 pipe
                 .map(as_side_effect(success_tracker))
                 .map(as_side_effect(experience_logger))
+                .map(make_sft_examples)
                 .flatmap()
                 .batch(buffer_size)
                 .in_batch_shuffle()
                 .unbatch()
                 .map(gadgets.selftrain.SFTPreprocessor(tokenizer))
             )
+
             data_collator = transformers.DataCollatorForSeq2Seq(tokenizer, model)
+
             trainer = transformers.Seq2SeqTrainer(
                 model=model,
                 args=training_args,
@@ -266,6 +283,7 @@ def main(
                 data_collator=data_collator,
                 compute_metrics=metrics,
             )
+
             metrics.set_eval_ds_inputs(ds_valid["input_ids"])
 
         case Mode.kto:
