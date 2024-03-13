@@ -23,7 +23,7 @@ class Mode(str, enum.Enum):
 
 def main(
     mode: Mode = typer.Option(...),
-    model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-96k",
+    model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-128k",
     wandb_entity: str = "transformersclub",
     wandb_project: str = "gadgets",
     wandb_group: Optional[str] = "selftrain",
@@ -153,8 +153,8 @@ def main(
     )
 
     success_tracker = gadgets.selftrain.ExperienceTracker(
-        rolling_window_size=1024,
-        report_after_every_n_problems=10,
+        rolling_window_size=128,
+        report_after_every_n_problems=1,
         use_stdout=False,
         use_wandb=True,
         num_preds_per_problem=num_predictions_per_example,
