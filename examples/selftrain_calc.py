@@ -23,12 +23,13 @@ class Mode(str, enum.Enum):
 
 def main(
     mode: Mode = typer.Option(...),
-    model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-128k",
+    model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-96k",
     wandb_entity: str = "transformersclub",
     wandb_project: str = "gadgets",
     wandb_group: Optional[str] = "selftrain",
     wandb_dir: str = ".wandb",
     checkpoint_dir: str = "checkpoints",
+    prediction_log_folder: str = "selftrain_preds",
     max_output_length: int = 756,
     train_ds: str = "MU-NLPC/Calc-X",
     train_ds_split_name: str = "train",
@@ -42,26 +43,25 @@ def main(
     prompt_col: str = "question",
     chain_col: str = "chain",
     result_col: str = "result",
-    prediction_log_folder: str = "selftrain_preds",
     learning_rate: float = 2e-5,
     batch_size: int = 2,
     grad_accum: int = 16,
     prediction_batch_size: int = 8,
     num_predictions_per_example: int = 16,
     sample_least_successful_with_prob: float = 0.5,
-    buffer_size: int = 2048,
+    buffer_size: int = 4096,
     optim: str = "adafactor",
     save_total_limit: int = 3,
     eval_steps: int = 1000,
     save_steps: int = 1000,
     dpo_loss_type: str = "sigmoid",
-    beta: float = 0.1,
+    prefs_beta: float = 0.1,
+    prefs_max_pairs_per_problem: Optional[int] = 32,
     prefs_target_min_pairs_per_problem: int = 32,
     prefs_max_oversample_accepted_per_problem: int = 4,
-    prefs_max_pairs_per_problem: Optional[int] = None,
+    sft_max_examples_per_problem: Optional[int] = 32,
     sft_target_min_examples_per_problem: int = 32,
     sft_max_oversample_per_problem: int = 4,
-    sft_max_examples_per_problem: Optional[int] = 32,
 ) -> None:
     cli_params = locals()
 
@@ -224,7 +224,10 @@ def main(
 
             # .batch().in_batch_shuffle().unbatch() is different from .shuffle(buffer_size=buffer_size)
             # because in .shuffle elements are sampled from the buffer
-            # and can (with low probability) be stuck there for a long time
+            # and can (with low probability) be there for a long time.
+            # in constrast, .batch().in_batch_shuffle().unbatch() will
+            # fill the buffer, shuffle it, and then yield all elements
+            # from it before refilling it.
             pipe = (
                 pipe
                 .map(as_side_effect(success_tracker))
@@ -232,9 +235,7 @@ def main(
                 .map(make_preferences)
                 .map(as_side_effect(num_pairs_tracker))
                 .flatmap()
-                .batch(buffer_size)
-                .in_batch_shuffle()
-                .unbatch()
+                .shuffle(buffer_size=buffer_size)
                 .map(gadgets.selftrain.DPOPreprocessor())
             )
 
@@ -249,7 +250,7 @@ def main(
                 max_prompt_length=512,
                 max_length=max_output_length + 512,
                 loss_type=dpo_loss_type,
-                beta=beta
+                beta=prefs_beta
             )
             
             metrics.set_eval_ds_inputs(trainer.eval_dataset["prompt_input_ids"])
@@ -268,9 +269,7 @@ def main(
                 .map(as_side_effect(experience_logger))
                 .map(make_sft_examples)
                 .flatmap()
-                .batch(buffer_size)
-                .in_batch_shuffle()
-                .unbatch()
+                .shuffle(buffer_size=buffer_size)
                 .map(gadgets.selftrain.SFTPreprocessor(tokenizer))
             )
 
