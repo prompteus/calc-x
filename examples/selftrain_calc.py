@@ -38,7 +38,7 @@ def main(
     valid_ds: str = "MU-NLPC/Calc-X",
     valid_ds_split_name: str = "validation",
     valid_ds_subset: Optional[str] = None,
-    limit_val_set_per_ds: int = 100,
+    limit_val_set_per_ds: int = 150,
     id_col: str = "id",
     prompt_col: str = "question",
     chain_col: str = "chain",
@@ -62,6 +62,11 @@ def main(
     sft_max_examples_per_problem: Optional[int] = 32,
     sft_target_min_examples_per_problem: int = 32,
     sft_max_oversample_per_problem: int = 4,
+    validate_at_start: bool = True,
+    prefill_buffer: Optional[str] = None,
+    prefill_buffer_limit: Optional[int] = None,
+    tracker_rolling_window_size: int = 1024,
+    experience_generation_top_k: int = 50,
 ) -> None:
     cli_params = locals()
 
@@ -100,7 +105,7 @@ def main(
 
     generation_config = transformers.GenerationConfig(
         do_sample=True,
-        topk=5,
+        top_k=experience_generation_top_k,
     )
 
     ds_train: datasets.Dataset
@@ -141,6 +146,23 @@ def main(
         case Mode.kto:
             raise NotImplementedError("binary KTO is not implemented yet. For KTO on preference pairs, use DPO mode with dpo_loss_type='kto_pair'")
 
+    if prefill_buffer is not None:
+        if prefill_buffer_limit is not None:
+            if prefill_buffer_limit % num_predictions_per_example != 0:
+                raise ValueError("prefill_buffer_limit must be a multiple of num_predictions_per_example")
+        try:
+            prefill = datasets.load_dataset(prefill_buffer, split="train")
+            if prefill_buffer_limit is not None:
+                prefill = prefill.select(range(prefill_buffer_limit))
+            prefill = [gadgets.selftrain.Experience(**x) for x in prefill.to_list()]
+        except FileNotFoundError:
+            prefill = pd.read_json(prefill_buffer, lines=True)
+            if prefill_buffer_limit is not None:
+                prefill = prefill.head(prefill_buffer_limit)
+            prefill = [gadgets.selftrain.Experience(**x) for x in prefill.to_dict(orient="records")]
+    else:
+        prefill = None
+
     experience_collector = gadgets.selftrain.ExperienceCollector(
         problem_ids=ds_train[id_col],
         prompts=ds_train[prompt_col],
@@ -149,11 +171,12 @@ def main(
         sample_least_successful_with_prob=sample_least_successful_with_prob,
         batch_size=prediction_batch_size,
         seed=0,
-        generation_config=generation_config
+        generation_config=generation_config,
+        prefill=prefill,
     )
 
     success_tracker = gadgets.selftrain.ExperienceTracker(
-        rolling_window_size=128,
+        rolling_window_size=tracker_rolling_window_size,
         report_after_every_n_problems=1,
         use_stdout=False,
         use_wandb=True,
@@ -209,7 +232,7 @@ def main(
     match mode:
         case Mode.dpo:
             num_pairs_tracker = gadgets.selftrain.NumPairsTracker(
-                rolling_window_size=128,
+                rolling_window_size=tracker_rolling_window_size,
                 report_after_every_n_problems=1,
                 use_stdout=False,
                 use_wandb=True,
@@ -292,6 +315,8 @@ def main(
 
     experience_collector.set_trainer(trainer)
 
+    if validate_at_start:
+        trainer.evaluate()
     trainer.train()
 
 

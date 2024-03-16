@@ -46,6 +46,7 @@ class ExperienceCollector:
         batch_size: int,
         generation_config: transformers.GenerationConfig,
         seed: int = 0,
+        prefill: list[Experience] | None = None,
     ):
         if len(problem_ids) != len(prompts) or len(prompts) != len(results):
             raise ValueError("ids, prompts, and results must have the same length")
@@ -61,6 +62,8 @@ class ExperienceCollector:
         self.batch_size = batch_size
         self.random_gen = np.random.default_rng(seed)
         self.generation_config = generation_config
+        self.prefill = prefill
+
 
     def set_trainer(self, trainer: transformers.Trainer) -> None:
         self.trainer = trainer
@@ -83,6 +86,15 @@ class ExperienceCollector:
                 yield idx
 
     def __iter__(self) -> Iterator[list[Experience]]:
+        if self.prefill is not None:
+            for experience_batch in more_itertools.chunked(self.prefill, self.num_preds_per_example, strict=True):
+                if not all(exp.problem_id == experience_batch[0].problem_id for exp in experience_batch):
+                    raise ValueError("prefill must contain experiences in batches of the same problem of size `num_preds_per_example`")
+                for exp in experience_batch:
+                    self.trials[self.problem_ids == exp.problem_id] += 1
+                    self.successes[self.problem_ids == exp.problem_id] += exp.is_correct
+                yield experience_batch
+
         example_gen = self._example_sampler()
         batch_gen = more_itertools.batched(example_gen, self.batch_size)
         # queue ensures that we yield all predictions for an example together
