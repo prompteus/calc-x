@@ -49,7 +49,7 @@ def main(
     prediction_batch_size: int = 8,
     num_predictions_per_example: int = 16,
     sample_least_successful_with_prob: float = 0.5,
-    buffer_size: int = 4096,
+    buffer_size: int = 8192,
     optim: str = "adafactor",
     save_total_limit: int = 3,
     eval_steps: int = 1000,
