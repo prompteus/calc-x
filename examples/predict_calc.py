@@ -9,6 +9,7 @@ import sys
 import random
 import warnings
 import itertools
+import uuid
 from typing import Iterator, Optional, Iterable
 
 import datasets
@@ -53,6 +54,8 @@ def main(
     batch_size: int = 1,
     prediction_column: str = "prediction",
     prediction_result_column: str = "prediction_result",
+    prediction_id_column: str = "prediction_id",
+    prediction_is_correct_column: str = "is_correct",
     question_column: str = "question",
     template_column: str = "template",
     result_column: str = typer.Option("result", help="Only required for displaying accuracy during prediction."),
@@ -184,6 +187,8 @@ def main(
     output_key_order = [
         "id",
         "source_ds",
+        prediction_id_column,
+        prediction_is_correct_column,
         result_column,
         prediction_result_column,
     ]
@@ -203,13 +208,16 @@ def main(
                 pred_result = gadgets.markup.get_result_from_output(prediction)
 
                 example_export = example.copy()
+                example_export[prediction_id_column] = str(uuid.uuid4())
                 example_export[prediction_column] = prediction
                 example_export[prediction_result_column] = pred_result
                 example_export[template_column] = template
 
                 if result_column is not None:
                     true_result = example[result_column]
-                    if gadgets.metrics.are_results_same(true_result, pred_result):
+                    is_correct = gadgets.metrics.are_results_same(true_result, pred_result)
+                    example_export[prediction_is_correct_column] = is_correct
+                    if is_correct:
                         num_correct_preds += 1
                 num_total_preds += 1
                
