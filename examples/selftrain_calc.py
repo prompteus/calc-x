@@ -110,7 +110,7 @@ def main(
 
     ds_train: datasets.Dataset
     ds_train = datasets.load_dataset(train_ds, split=train_ds_split_name)
-    if train_ds_subset is not None:
+    if train_ds_subset is not None and train_ds_subset != "":
         ds_train = ds_train.filter(lambda x: x["source_ds"] == train_ds_subset)
     if limit_train_set_per_ds is not None and limit_train_set_per_ds > 0:
         df_train = ds_train.to_pandas()
