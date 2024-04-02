@@ -50,6 +50,7 @@ def main(
     from_nth_example: int = -1,
     to_nth_example: int = -1,
     sample_n_examples: int = -1,
+    limit_num_examples_per_ds: int = -1,
     num_preds_per_example: Optional[int] = None,
     batch_size: int = 1,
     prediction_column: str = "prediction",
@@ -120,6 +121,14 @@ def main(
     dataset = datasets.load_dataset(dataset_name, split=split)
     if ds_subset is not None:
         dataset = dataset.filter(lambda x: x["source_ds"] == ds_subset)
+    if limit_num_examples_per_ds is not None and limit_num_examples_per_ds > 0:
+        df = dataset.to_pandas()
+        df = df.groupby("source_ds").apply(
+            lambda g: g.sample(limit_num_examples_per_ds, random_state=seed)
+            if len(g) > limit_num_examples_per_ds
+            else g
+        ).reset_index(drop=True)
+        dataset = datasets.Dataset.from_pandas(df)
 
     if prediction_column in dataset.column_names:
         raise ValueError(f"Column '{prediction_column}' already exists in dataset '{dataset_name}'.")
