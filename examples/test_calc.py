@@ -1,3 +1,6 @@
+import pathlib
+from typing import Annotated
+
 import numpy as np
 import pandas as pd
 import scipy.stats
@@ -27,7 +30,17 @@ def print_info(
 
 
 def main(
-    input_jsonl: str,
+    input_jsonl: Annotated[
+        pathlib.Path,
+        typer.Argument(
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            writable=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
     prediction_column: str = "prediction",
     correct_column: str = "result",
     confidence_level: float = 0.95,
