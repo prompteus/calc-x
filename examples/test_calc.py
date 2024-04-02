@@ -21,7 +21,7 @@ def print_info(
 
     print(name)
     print(f"  Number of predictions: {len(is_correct)}")
-    print(f"  predictions have a correct final result in {mean:.1%} ± {radius*100:.1f} of cases. latex: {mean*100:.1f}\pm\small{{{((high-low)/2)*100:.1f}}}")
+    print(f"  predictions have a correct final result in {mean:.1%} ± {radius*100:.1f} of cases. latex: {mean*100:.1f}±\small{{{((high-low)/2)*100:.1f}}}")
     print(f"  {confidence_level:.1%} Confidence interval: [{low:.3%}, {high:.3%}]")
 
 
