@@ -1,4 +1,5 @@
 import abc
+import math
 import random
 import collections
 import itertools
@@ -215,16 +216,18 @@ class MakePreferencePairs:
         if self.max_pairs is None and self.max_oversample_accepted is None:
             pairs = itertools.product(accepteds, rejecteds)
         else:
-            # either max_pairs or max_oversample_accepted is set
-            # therefore either accepteds or rejecteds iterators will be finite
-            # therefore zip will stop when the shorter iterator stops
-            if self.min_target_pairs is not None:
-                len_upper_bound = self.min_target_pairs
-            else:
-                len_upper_bound = self.max_oversample_accepted * len(accepteds)
+            len_upper_bound = math.inf
+            if self.max_pairs is not None:
+                len_upper_bound = self.max_pairs
+            if self.max_oversample_accepted is not None:
+                len_upper_bound = min(len_upper_bound, self.max_oversample_accepted * len(accepteds))
+            # this makes sure that rejecteds iterator will be always finite
+            assert not math.isinf(len_upper_bound)
+            len_upper_bound = int(len_upper_bound)
+
             self.random_gen.shuffle(accepteds)
             accepteds = cycle(accepteds, self.max_oversample_accepted)
-            rejecteds = itertools.cycle(rejecteds)
+            rejecteds = cycle(rejecteds, self.min_target_pairs)
             rejecteds = itertools.islice(rejecteds, len_upper_bound)
             rejecteds = list(rejecteds)
             self.random_gen.shuffle(rejecteds)
