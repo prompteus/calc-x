@@ -14,32 +14,33 @@ import gadgets
 
 
 def main(
-    use_instructions_train: bool = False,
+    use_instructions_train: bool = True,
     use_instructions_val: bool = False,
-    model_name: str = "MU-NLPC/calcformer-instruct-flan-xl_step-128k",
+    model_name: str = "google/t5-v1_1-large",
     limit_train_set_per_ds: int = -1,
     limit_val_set_per_ds: int = 200,
     wandb_entity: str = "transformersclub",
     wandb_project: str = "gadgets",
-    wandb_group: Optional[str] = "dpo", # TODO
+    wandb_group: Optional[str] = "instructions",
     wandb_dir: str = ".wandb",
     checkpoint_dir: str = "checkpoints",
-    train_ds: str = "MU-NLPC/Calc-ape210k_selftrain_experiment",
+    train_ds: str = "MU-NLPC/Calc-X",
     train_ds_split_name: str = "train",
     input_col: str = "question",
-    train_label_col: str = "correct_1",
+    train_label_col: str = "chain",
     valid_label_col: str = "chain",
     valid_ds: str = "MU-NLPC/Calc-X",
-    valid_ds_subset: Optional[str] = "ape210k",
+    valid_ds_subset: Optional[str] = None,
     max_output_length: int = 756,
-    batch_size: int = 1,
-    grad_accum: int = 32,
-    optim="adafactor",
+    batch_size: int = 4,
+    grad_accum: int = 8,
+    eval_batch_size: int = 8,
+    optim="adamw_torch",
     save_total_limit: int = 5,
-    eval_steps: int = 2000,
-    save_steps: int = 2000,
+    eval_steps: int = 16000,
+    save_steps: int = 16000,
     learning_rate: float = 2e-5,
-    early_stopping_patience: int = 10,
+    early_stopping_patience: Optional[int] = None,
     early_stopping_threshold: float = 0.03,
 ) -> None:
     cli_params = locals()
@@ -123,10 +124,13 @@ def main(
     ds_valid = ds_valid.map(preprocess, batched=True, fn_kwargs={"label_col": valid_label_col})
     ds_train = ds_train.shuffle(seed=0)
 
-    early_stopping = transformers.EarlyStoppingCallback(
-        early_stopping_patience=early_stopping_patience,
-        early_stopping_threshold=early_stopping_threshold,
-    )
+    callbacks = []
+    if early_stopping_patience is not None:
+        early_stopping = transformers.EarlyStoppingCallback(
+            early_stopping_patience=early_stopping_patience,
+            early_stopping_threshold=early_stopping_threshold,
+        )
+        callbacks.append(early_stopping)
 
     training_args = transformers.Seq2SeqTrainingArguments(
         output_dir=f"{checkpoint_dir}/{wandb.run.name}",
@@ -138,8 +142,8 @@ def main(
         optim=optim,
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=grad_accum,
-        per_device_eval_batch_size=1,
-        eval_accumulation_steps=16,
+        per_device_eval_batch_size=eval_batch_size,
+        eval_accumulation_steps=1,
         logging_steps=10,
         eval_steps=eval_steps,
         save_steps=save_steps,
@@ -171,7 +175,7 @@ def main(
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=metrics,
-        callbacks=[early_stopping],
+        callbacks=callbacks,
     )
 
     trainer.train()
