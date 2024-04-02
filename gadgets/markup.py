@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 
 import bs4
 
@@ -134,35 +135,53 @@ def from_model_markup(markup: bs4.BeautifulSoup | str) -> tuple[Chain, str]:
         if isinstance(item, bs4.NavigableString) and item.string.strip() == "":
             item.extract()
 
+    last_interaction_idx: int | None = None
+
     for item in markup.children:
         if isinstance(item, bs4.NavigableString):
             chain.append(str(item).strip())
             continue
 
         assert isinstance(item, bs4.Tag)
+
         if item.name == GADGET_TAG:
             gadget_id = item.get("id", default="")
             if item.string is None:
                 inputs = ""
             else:
                 inputs = item.string.strip()
-            try:
-                next_el: bs4.Tag = item.next_sibling
-                if next_el is None:
-                    outputs = ""
-                elif next_el.name == OUTPUT_TAG:
-                    if next_el.string is None:
-                        outputs = ""
-                    else:
-                        outputs = next_el.string.strip()
-                else:
-                    raise ValueError("Expected output tag after gadget tag, got '%s'" % next_el.name)
-            except Exception as e:
-                raise e
-            interaction = Interaction(gadget_id=gadget_id, inputs=inputs, outputs=outputs)
+            interaction = Interaction(gadget_id=gadget_id, inputs=inputs, outputs="")
             chain.append(interaction)
+            last_interaction_idx = len(chain) - 1
+
         elif item.name == OUTPUT_TAG:
-            continue
+            if last_interaction_idx is None:
+                warnings.warn(
+                    "Found output tag without a preceding gadget tag - ignoring.\n\n"
+                    "markup:\n"
+                    f"{markup}\n\n"
+                    "output tag:\n"
+                    f"{item}\n"
+                )
+                continue
+            if chain[last_interaction_idx].outputs != "":
+                warnings.warn(
+                    "Found multiple output tags for a single gadget tag. Ignoring the second one.\n\n"
+                    "markup:\n"
+                    f"{markup}\n\n"
+                    "output tag:\n"
+                    f"{item}\n\n"
+                    "last interaction:\n"
+                    f"{chain[last_interaction_idx]}\n"
+                )
+                continue
+            outputs = "" if item.string is None else item.string.strip()
+            chain[last_interaction_idx] = Interaction(
+                gadget_id=chain[last_interaction_idx].gadget_id,
+                inputs=chain[last_interaction_idx].inputs,
+                outputs=outputs,
+            )
+                
         elif item.name == RESULT_TAG:
             if item.string is not None:
                 result = item.string.strip()
