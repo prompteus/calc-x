@@ -7,18 +7,28 @@ import pandas as pd
 import scipy
 
 import gadgets
+import typer
 
-argparser = argparse.ArgumentParser()
 
-argparser.add_argument("--input_jsonl", type=str)
-argparser.add_argument("--use_gadgets", type=bool, required=True, action=argparse.BooleanOptionalAction)
-argparser.add_argument("--confidence_level", type=float, default=0.95)
+def print_info(
+    name: str,
+    is_correct: np.ndarray,
+    confidence_level: float,
+    seed: int = 0,
+) -> None:
+    if is_correct.ndim != 1:
+        raise ValueError("is_correct should be 1D array")
+    bootstrap = scipy.stats.bootstrap(is_correct.reshape(1, -1), np.mean, confidence_level=confidence_level, random_state=seed)
+    low, high = bootstrap.confidence_interval
+    mean = is_correct.mean()
+    radius = (high-low) / 2
 
-args = argparser.parse_args()
+    print(name)
+    print(f"  Number of predictions: {len(is_correct)}")
+    print(f"  predictions have a correct final result in {mean:.1%} ± {radius*100:.1f} of cases. latex: {mean*100:.1f}\pm\small{{{((high-low)/2)*100:.1f}}}")
+    print(f"  {confidence_level:.1%} Confidence interval: [{low:.3%}, {high:.3%}]")
 
-df = pd.read_json(args.input_jsonl, lines=True)
 
-is_correct = []
 
 number_re = re.compile(r"[-+]?\d+[,.]?\d*(\s?[\/:]\s?\d+\.?\d*)*")
 
@@ -42,36 +52,58 @@ def extract_number_from_option(string: str) -> str:
     string = string.replace(":", "/")
     return string
 
-for pred, correct_option, options in zip(df["prediction"], df["result"], df["options"]):
-    true_result = options[correct_option]
-    if args.use_gadgets:
-        _, pred_result = gadgets.markup.from_model_markup(pred)
-    else:
-        pred_result = gadgets.baseline_metrics.get_result_from_output(pred)
 
-    if pred_result is None:
-        is_correct.append(False)
-        continue
-
-    if pred_result == "":
-        pred_result = "none"
-
-    if pred_result.strip() == true_result.strip():
-        is_correct.append(True)
-        continue
-
-    if gadgets.metrics.are_results_same(pred_result, extract_number_from_option(true_result)):
-        is_correct.append(True)
-        continue
-
-    # find the closest option to the prediction
-    _, _, best_match = fuzzywuzzy.process.extractOne(pred_result, options)
-    is_correct.append(best_match == correct_option)
+def main(
+    input_jsonl: str,
+    prediction_column: str = "prediction",
+    correct_column: str = "result",
+    confidence_level: float = 0.95,
+    ds_column: str = "source_ds",
+    options_column: str = "options",
+    ds_subset: str = "aqua_rat"
+) -> None:
+    df = pd.read_json(input_jsonl, lines=True)
+    if ds_column in df:
+        df = df[df[ds_column] == ds_subset]
     
+    if not isinstance(df[prediction_column].iloc[0], str):
+        # previously, prediction script would output a list of predictions
+        # instead of putting each prediction in a separate row
+        df = df.explode(prediction_column).dropna(subset=[prediction_column]).reset_index(drop=True)
 
-is_correct = np.array(is_correct).astype(float).reshape(1, -1)
+    pred_outputs: pd.Series = df[prediction_column]
+    pred_results = pred_outputs.apply(gadgets.markup.get_result_from_output)
+    is_correct = []
+    
+    for correct_option, options, pred_result in zip(df[correct_column], df[options_column], pred_results):
+        true_result = options[correct_option]
 
-bootstrap = scipy.stats.bootstrap(is_correct, np.mean, confidence_level=args.confidence_level, random_state=0)
-low, high = bootstrap.confidence_interval
-print(f"Predictions have a correct final result in {np.mean(is_correct)*100:.1f}±\small{{{((high-low)/2)*100:.1f}}}% of cases.")
-print(f"{args.confidence_level * 100}% Confidence interval: [{low:.4%}, {high:.4}%], i.e. ")
+        if pred_result is None:
+            is_correct.append(False)
+            continue
+
+        if pred_result == "":
+            pred_result = "none"
+
+        if pred_result.strip() == true_result.strip():
+            is_correct.append(True)
+            continue
+
+        if gadgets.metrics.are_results_same(pred_result, extract_number_from_option(true_result)):
+            is_correct.append(True)
+            continue
+
+        # find the closest option to the prediction
+        _, _, best_match = fuzzywuzzy.process.extractOne(pred_result, options)
+        is_correct.append(best_match == correct_option)
+
+    is_correct = np.array(is_correct).astype(float)
+
+    name = "OVERALL" if ds_column not in df.columns else ds_subset
+    print_info(name, is_correct, confidence_level)
+
+
+
+if __name__ == "__main__":
+    typer.run(main)
+
