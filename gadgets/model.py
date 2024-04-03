@@ -122,7 +122,7 @@ class GadgetAssist(transformers.GenerationMixin):
         decoder_start_token = self.tokenizer.convert_ids_to_tokens(self.config.decoder_start_token_id)
         attention_mask = kwargs.pop("attention_mask", None)
 
-        while True:
+        for _ in range(self.default_max_tokens):
             if not runnings.any():
                 break
 
@@ -166,15 +166,26 @@ class GadgetAssist(transformers.GenerationMixin):
                 **kwargs,
             )
 
-            outputs_str[runnings] = self.tokenizer.batch_decode(
+            curr_seq_idxs = np.arange(input_ids.shape[0])[runnings]
+
+            curr_outputs_str = self.tokenizer.batch_decode(
                 model_output,
                 skip_special_tokens=True,
                 spaces_between_special_tokens=False,
             )
 
-            curr_seq_idxs = np.arange(input_ids.shape[0])[runnings]
+            # stop a sequence if nothing was generated in it
+            for curr_seq_idx, glob_seq_idx in enumerate(curr_seq_idxs):
+                curr_output_str = curr_outputs_str[curr_seq_idx]
+                prev_output_str = outputs_str[glob_seq_idx]
+                if curr_output_str.strip() == prev_output_str.strip():
+                    runnings[glob_seq_idx] = False
+
+            outputs_str[runnings] = curr_outputs_str
 
             for curr_seq_idx, glob_seq_idx in enumerate(curr_seq_idxs):
+
+                # evaluate gadgets
                 if stop_after_gadget_call.mask[curr_seq_idx]:
                     try:
                         doc = bs4.BeautifulSoup(outputs_str[glob_seq_idx], features="html.parser")
@@ -212,7 +223,8 @@ class GadgetAssist(transformers.GenerationMixin):
                     if evaluated_something:
                         # replace outputs_str with the evaluated version
                         outputs_str[glob_seq_idx] = str(doc)
-                        
+
+                # stop a sequence if ends with EOS        
                 elif self.tokenizer.eos_token_id in model_output[curr_seq_idx]:
                     runnings[glob_seq_idx] = False
 
