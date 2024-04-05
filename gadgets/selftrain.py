@@ -2,6 +2,7 @@ import abc
 import math
 import random
 import collections
+import functools
 import itertools
 import pathlib
 import json
@@ -12,6 +13,7 @@ import numpy as np
 import torch
 import transformers
 import more_itertools
+import sklearn.pipeline
 
 import gadgets.markup
 import gadgets.metrics
@@ -21,9 +23,10 @@ class Experience(NamedTuple):
     problem_id: str
     prediction_id: str
     is_correct: bool
-    prompt: str
-    prediction: str
-
+    style_score: float | None = None
+    prompt: str | None = None
+    prediction: str | None = None
+    
 
 class ExperiencePreferencePair(NamedTuple):
     accepted: Experience
@@ -48,6 +51,8 @@ class ExperienceCollector:
         generation_config: transformers.GenerationConfig,
         seed: int = 0,
         prefill: list[Experience] | None = None,
+        prefill_buffer_do_yield: bool | None = None,
+        style_classifier: sklearn.pipeline.Pipeline | None = None,
     ):
         if len(problem_ids) != len(prompts) or len(prompts) != len(results):
             raise ValueError("ids, prompts, and results must have the same length")
@@ -64,6 +69,10 @@ class ExperienceCollector:
         self.random_gen = np.random.default_rng(seed)
         self.generation_config = generation_config
         self.prefill = prefill
+        if prefill is not None and prefill_buffer_do_yield is None:
+            raise ValueError("prefill_buffer_do_yield must be set when prefill is not None")
+        self.prefill_buffer_do_yield = prefill_buffer_do_yield
+        self.style_classifier = style_classifier
 
 
     def set_trainer(self, trainer: transformers.Trainer) -> None:
@@ -94,7 +103,8 @@ class ExperienceCollector:
                 for exp in experience_batch:
                     self.trials[self.problem_ids == exp.problem_id] += 1
                     self.successes[self.problem_ids == exp.problem_id] += exp.is_correct
-                yield experience_batch
+                if self.prefill_buffer_do_yield:
+                    yield experience_batch
 
         example_gen = self._example_sampler()
         batch_gen = more_itertools.batched(example_gen, self.batch_size)
@@ -121,7 +131,8 @@ class ExperienceCollector:
             prediction_ids = [str(uuid.uuid4()) for _ in range(len(is_correct))]
             self.trials[batch_idxs] += 1
             self.successes[batch_idxs] += is_correct
-            for experience in zip(problem_ids, prediction_ids, is_correct, prompts, predictions):
+            style_scores = self.style_classifier.predict_proba(predictions)[:, 1]
+            for experience in zip(problem_ids, prediction_ids, is_correct, style_scores.round(3).tolist(), prompts, predictions):
                 queue.append(Experience(*experience))
                 while len(queue) >= self.num_preds_per_example:
                     yield [queue.popleft() for _ in range(self.num_preds_per_example)]
@@ -191,20 +202,45 @@ class MakePreferencePairs:
         random_gen: random.Random,
         max_pairs: int | None = None,
         target_min_pairs: int | None = None,
-        max_oversample_accepted: int | None = None
+        max_oversample_accepted: int | None = None,
+        prefer_good_style: bool = False,
+        style_score_margin: float | None = None,
     ):
         self.random_gen = random_gen
         self.max_pairs = max_pairs
         self.min_target_pairs = target_min_pairs
         self.max_oversample_accepted = max_oversample_accepted
+        self.prefer_good_style = prefer_good_style
+        self.style_score_margin = style_score_margin
+        if prefer_good_style and style_score_margin is None:
+            raise ValueError("`style_score_margin` must be set when `prefer_good_style` is True")
 
     def __call__(self, experience: list[Experience]) -> list[ExperiencePreferencePair]:
         assert all(exp.problem_id == experience[0].problem_id for exp in experience)
-        accepteds = [exp for exp in experience if exp.is_correct]
-        rejecteds = [exp for exp in experience if not exp.is_correct]
-        return self._sample_pairs(accepteds, rejecteds)
+        if self.prefer_good_style and all(exp.style_score is not None for exp in experience):
+            corrects = {exp for exp in experience if exp.is_correct}
+            incorrects = {exp for exp in experience if not exp.is_correct}
+            gap = self.style_score_margin
+            all_prefs = {exp: set() for exp in experience}
+            for correct in corrects:
+                # correct nice > cirrect ugly
+                all_prefs[correct].update({other_correct for other_correct in corrects if correct.style_score - other_correct.style_score > gap})
+                # correct nice > incorrect nice
+                # correct nice > incorrect ugly
+                # correct ugly > incorrect ugly
+                all_prefs[correct].update({incorrect for incorrect in incorrects if not incorrect.style_score - correct.style_score > gap})
+            for incorrect in incorrects:
+                # incorrect nice > incorrect ugly
+                all_prefs[incorrect].update({other_incorrect for other_incorrect in incorrects if incorrect.style_score - other_incorrect.style_score > gap})
+        else:
+            if self.prefer_good_style:
+                raise ValueError("`prefer_good_style` is set but some experiences do not have `style_score` property")
+            accepteds = [exp for exp in experience if exp.is_correct]
+            rejecteds = [exp for exp in experience if not exp.is_correct]
+            all_prefs = {acc: rejecteds for acc in accepteds}
+        return self._sample_pairs(all_prefs)
 
-    def _sample_pairs(self, accepteds: list[Experience], rejecteds: list[Experience]) -> list[ExperiencePreferencePair]:
+    def _sample_pairs(self, all_prefs: dict[Experience, set[Experience]]) -> list[ExperiencePreferencePair]:
         """
         Samples preference pairs of accepted and rejected experiences.
         Ensures that:
@@ -213,26 +249,78 @@ class MakePreferencePairs:
           (3) each accepted is used at most `max_oversample_accepted` times
           (4) at least `min_target_pairs` are created if possible without violating (3)
         """
-        if self.max_pairs is None and self.max_oversample_accepted is None:
-            pairs = itertools.product(accepteds, rejecteds)
-        else:
-            len_upper_bound = math.inf
-            if self.max_pairs is not None:
-                len_upper_bound = self.max_pairs
-            if self.max_oversample_accepted is not None:
-                len_upper_bound = min(len_upper_bound, self.max_oversample_accepted * len(accepteds))
-            # this makes sure that rejecteds iterator will be always finite
-            assert not math.isinf(len_upper_bound)
-            len_upper_bound = int(len_upper_bound)
+        all_prefs = {acc: list(rejecteds) for acc, rejecteds in all_prefs.items() if len(rejecteds) > 0}
 
-            self.random_gen.shuffle(accepteds)
-            accepteds = cycle(accepteds, self.max_oversample_accepted)
-            rejecteds = cycle(rejecteds, self.min_target_pairs)
-            rejecteds = itertools.islice(rejecteds, len_upper_bound)
-            rejecteds = list(rejecteds)
+        for rejecteds in all_prefs.values():
             self.random_gen.shuffle(rejecteds)
-            pairs = zip(accepteds, rejecteds)
-        return [ExperiencePreferencePair(acc, rej) for acc, rej in pairs]
+
+        prefs = all_prefs.copy()
+
+        # undersample accepted predictions that appear too many times
+        if self.max_oversample_accepted is not None:
+            for accepted, rejecteds in prefs.items():
+                prefs[accepted] = rejecteds[:self.max_oversample_accepted]
+        
+        if len(prefs) == 0:
+            return []
+
+        # oversample accepted predictions that appear too few times
+        # without violating the oversampling limit
+        if self.min_target_pairs is not None:
+            while self._num_pairs(prefs) < self.min_target_pairs:
+                least_represented_accepted = min(prefs, key=lambda acc: len(prefs[acc]))
+                its_rejecteds = prefs[least_represented_accepted]
+                its_rejecteds_orig = all_prefs[least_represented_accepted]
+                if self.max_pairs is not None and self._num_pairs(prefs) >= self.max_pairs:
+                    # stop before too many pairs
+                    break
+                if len(its_rejecteds) >= self.max_oversample_accepted:
+                    # stop before too much oversampling
+                    break
+                # oversample the least represented accepted by one
+                # each rejected will be used aproximately the same number of times for this accepted
+                new_len = len(its_rejecteds) + 1
+                prefs[least_represented_accepted] = list(itertools.islice(cycle(its_rejecteds_orig), new_len))
+                assert len(prefs[least_represented_accepted]) == new_len
+        
+        pairs = [
+            ExperiencePreferencePair(accepted, rejected)
+            for accepted, rejecteds in prefs.items()
+            for rejected in rejecteds
+        ]
+
+        if self.max_pairs is not None and len(pairs) > self.max_pairs:
+            self.random_gen.shuffle(pairs)
+            pairs = pairs[:self.max_pairs]
+
+        return pairs
+
+    @staticmethod
+    def _num_pairs(prefs: dict[Experience, list[Experience]]) -> int:
+        return sum(len(rejecteds) for rejecteds in prefs.values())
+
+    # def _sample_pairs(self, accepteds: list[Experience], rejecteds: list[Experience]) -> list[ExperiencePreferencePair]:
+        
+    #     if self.max_pairs is None and self.max_oversample_accepted is None:
+    #         pairs = itertools.product(accepteds, rejecteds)
+    #     else:
+    #         len_upper_bound = math.inf
+    #         if self.max_pairs is not None:
+    #             len_upper_bound = self.max_pairs
+    #         if self.max_oversample_accepted is not None:
+    #             len_upper_bound = min(len_upper_bound, self.max_oversample_accepted * len(accepteds))
+    #         # this makes sure that rejecteds iterator will be always finite
+    #         assert not math.isinf(len_upper_bound)
+    #         len_upper_bound = int(len_upper_bound)
+
+    #         self.random_gen.shuffle(accepteds)
+    #         accepteds = cycle(accepteds, self.max_oversample_accepted)
+    #         rejecteds = cycle(rejecteds, self.min_target_pairs)
+    #         rejecteds = itertools.islice(rejecteds, len_upper_bound)
+    #         rejecteds = list(rejecteds)
+    #         self.random_gen.shuffle(rejecteds)
+    #         pairs = zip(accepteds, rejecteds)
+    #     return [ExperiencePreferencePair(acc, rej) for acc, rej in pairs]
 
 
 class BalancerByLabel:
@@ -334,9 +422,11 @@ class RollingWindowTracker(Generic[TrackedItem], abc.ABC):
 
 class ExperienceTracker(RollingWindowTracker[list[Experience]]):
 
-    def __init__(self, num_preds_per_problem: int, *args, **kwargs):
+    def __init__(self, num_preds_per_problem: int, style_score_printing_threshold: float, style_score_margin: float, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.num_preds_per_problem = num_preds_per_problem
+        self.style_score_printing_threshold = style_score_printing_threshold
+        self.style_score_margin = style_score_margin
 
     @property
     def default_metric_prefix(self) -> str:
@@ -361,19 +451,64 @@ class ExperienceTracker(RollingWindowTracker[list[Experience]]):
             f"exactly_{str(n).zfill(digits)}_num_corrects_per_problem": count / len(self.rolling_window)
             for n, count in enumerate(exactly_n_corrects_per_problem)
         }
+
         metrics = {
             "experience_counter": self.counter, 
             "num_total_generated_predictions": self.counter * self.num_preds_per_problem,
             "avg_num_corrects_per_problem": total_success_rate,
             "num_none_corrects": exactly_n_corrects_per_problem[0] / len(self.rolling_window),
             "num_all_corrects": exactly_n_corrects_per_problem[-1] / len(self.rolling_window),
-            "num_some_corrects": sum(exactly_n_corrects_per_problem[1:-1]) / len(self.rolling_window),
+            "num_some_corrects": sum(exactly_n_corrects_per_problem[1:-1]) / len(self.rolling_window),    
             "rolling_window_size": len(self.rolling_window),
             **exactly_n_correct_per_problem_str
         }
+
         if self.use_wandb:
             import wandb
             metrics["distr_num_corrects_per_problem"] = wandb.Histogram(per_problem_success_rates)
+
+        if all(exp.style_score is not None for exp in flattened_window):
+            style_scores = [exp.style_score for exp in flattened_window if exp.style_score is not None]
+            total_good_style_rate = sum(exp.style_score > self.style_score_printing_threshold for exp in flattened_window) / len(flattened_window)
+            per_problem_good_style_rates = [sum(exp.style_score > self.style_score_printing_threshold for exp in exps) for exps in self.rolling_window]
+            exactly_n_good_style_per_problem = [0] * (self.num_preds_per_problem + 1)
+            for per_problem_good_style_rate in per_problem_good_style_rates:
+                exactly_n_good_style_per_problem[per_problem_good_style_rate] += 1
+            digits = len(str(self.num_preds_per_problem))
+            exactly_n_good_style_per_problem_str = {
+                f"exactly_{str(n).zfill(digits)}_good_style_per_problem": count / len(self.rolling_window)
+                for n, count in enumerate(exactly_n_good_style_per_problem)
+            }
+
+            metrics.update({
+                "avg_style_score": sum(style_scores) / len(style_scores),
+                "max_style_score": max(style_scores),
+                "min_style_score": min(style_scores),
+                "avg_good_style_rate": total_good_style_rate,
+                "num_all_with_good_style": exactly_n_good_style_per_problem[-1] / len(self.rolling_window),
+                "num_none_with_good_style": exactly_n_good_style_per_problem[0] / len(self.rolling_window),
+                "num_some_with_good_style": sum(exactly_n_good_style_per_problem[1:-1]) / len(self.rolling_window),
+                **exactly_n_good_style_per_problem_str
+            })
+            if self.use_wandb:
+                import wandb
+                metrics["distr_good_style_per_problem"] = wandb.Histogram(per_problem_good_style_rates)
+                metrics["distr_style_scores"] = wandb.Histogram(style_scores)
+
+            if self.style_score_margin is not None:
+                num_style_pairs = []
+                for exps in self.rolling_window:
+                    num_style_pairs.append(0)
+                    for exp1 in exps:
+                        for exp2 in exps:
+                            if exp1.style_score - exp2.style_score > self.style_score_margin:
+                                num_style_pairs[-1] += 1
+                metrics["avg_num_style_pairs"] = sum(num_style_pairs) / len(num_style_pairs),
+
+                if self.use_wandb:
+                    import wandb
+                    metrics["distr_num_style_pairs"] = wandb.Histogram(num_style_pairs)
+
         return metrics
     
 

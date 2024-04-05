@@ -2,6 +2,7 @@ import os
 import gc
 import random
 import enum
+import tempfile
 from typing import Optional
 
 import datasets
@@ -11,6 +12,8 @@ import torchdata
 import transformers
 import typer
 import wandb
+import skops.hub_utils
+import skops.io
 
 
 import gadgets.selftrain
@@ -65,8 +68,14 @@ def main(
     validate_at_start: bool = True,
     prefill_buffer: Optional[str] = None,
     prefill_buffer_limit: Optional[int] = None,
+    prefill_buffer_do_yield: bool = False,
     tracker_rolling_window_size: int = 1024,
     experience_generation_top_k: int = 50,
+    metric_for_best_model: str = "eval/ape210k__correct_results",
+    style_classifier_checkpoint: Optional[str] = "MU-NLPC/calcformer-style-classifier",
+    style_classifier_margin: float = 0.25,
+    style_score_printing_threshold: float = 0.5,
+    prefer_good_style: bool = False,
 ) -> None:
     cli_params = locals()
 
@@ -163,6 +172,19 @@ def main(
     else:
         prefill = None
 
+    if prefer_good_style and mode == Mode.sft:
+        raise NotImplementedError("prefer_good_style is not (yet) implemented for SFT mode")
+
+    if style_classifier_checkpoint is not None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            skops.hub_utils.download(
+                repo_id=style_classifier_checkpoint,
+                dst=tmp_dir,
+            )
+            style_classifier = skops.io.load(f"{tmp_dir}/model.skops")
+    else:
+        style_classifier = None
+        
     experience_collector = gadgets.selftrain.ExperienceCollector(
         problem_ids=ds_train[id_col],
         prompts=ds_train[prompt_col],
@@ -173,14 +195,18 @@ def main(
         seed=0,
         generation_config=generation_config,
         prefill=prefill,
+        prefill_buffer_do_yield=prefill_buffer_do_yield,
+        style_classifier=style_classifier,
     )
 
-    success_tracker = gadgets.selftrain.ExperienceTracker(
+    experience_tracker = gadgets.selftrain.ExperienceTracker(
         rolling_window_size=tracker_rolling_window_size,
         report_after_every_n_problems=1,
         use_stdout=False,
         use_wandb=True,
         num_preds_per_problem=num_predictions_per_example,
+        style_score_printing_threshold=style_score_printing_threshold,
+        style_score_margin=style_classifier_margin,
     )
 
     os.makedirs(prediction_log_folder, exist_ok=True)
@@ -219,7 +245,7 @@ def main(
         generation_max_length=max_output_length,
         include_inputs_for_metrics=True,
         report_to="wandb",
-        metric_for_best_model="avg_correct_results",
+        metric_for_best_model=metric_for_best_model,
         greater_is_better=True,
         load_best_model_at_end=True,
         save_total_limit=save_total_limit,
@@ -242,7 +268,9 @@ def main(
                 random_gen=random.Random(0),
                 target_min_pairs=prefs_target_min_pairs_per_problem,
                 max_oversample_accepted=prefs_max_oversample_accepted_per_problem,
-                max_pairs=prefs_max_pairs_per_problem
+                max_pairs=prefs_max_pairs_per_problem,
+                prefer_good_style=prefer_good_style,
+                style_score_margin=style_classifier_margin,
             )
 
             # .batch().in_batch_shuffle().unbatch() is different from .shuffle(buffer_size=buffer_size)
@@ -253,7 +281,7 @@ def main(
             # from it before refilling it.
             pipe = (
                 pipe
-                .map(as_side_effect(success_tracker))
+                .map(as_side_effect(experience_tracker))
                 .map(as_side_effect(experience_logger))
                 .map(make_preferences)
                 .map(as_side_effect(num_pairs_tracker))
@@ -288,7 +316,7 @@ def main(
 
             pipe = (
                 pipe
-                .map(as_side_effect(success_tracker))
+                .map(as_side_effect(experience_tracker))
                 .map(as_side_effect(experience_logger))
                 .map(make_sft_examples)
                 .flatmap()
