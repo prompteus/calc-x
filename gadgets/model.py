@@ -174,13 +174,16 @@ class GadgetAssist(transformers.GenerationMixin):
                 spaces_between_special_tokens=False,
             )
 
-            # stop a sequence if nothing was generated in it
+            # stop if nothing was generated
             new_runnings = runnings.copy()
+            stop_all = True
             for curr_seq_idx, glob_seq_idx in enumerate(curr_seq_idxs):
                 curr_output_str = curr_outputs_str[curr_seq_idx]
                 prev_output_str = outputs_str[glob_seq_idx]
-                if curr_output_str.strip() == prev_output_str.strip():
-                    new_runnings[glob_seq_idx] = False
+                if curr_output_str.strip() != prev_output_str.strip():
+                    stop_all = False
+            if stop_all:
+                new_runnings[:] = False
 
             outputs_str[runnings] = curr_outputs_str
             runnings = new_runnings
