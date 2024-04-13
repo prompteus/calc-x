@@ -1,3 +1,5 @@
+import sys
+import traceback
 import os
 import gc
 import random
@@ -71,11 +73,13 @@ def main(
     prefill_buffer_do_yield: bool = False,
     tracker_rolling_window_size: int = 1024,
     experience_generation_top_k: int = 50,
-    metric_for_best_model: str = "eval/ape210k__correct_results",
+    metric_for_best_model: str = "ape210k__correct_results",
     style_classifier_checkpoint: Optional[str] = "MU-NLPC/calcformer-style-classifier",
     style_classifier_margin: float = 0.25,
     style_score_printing_threshold: float = 0.5,
     prefer_good_style: bool = False,
+    resume_from_checkpoint: bool = False,
+    wandb_allow_val_change: bool = False,
 ) -> None:
     cli_params = locals()
 
@@ -94,9 +98,10 @@ def main(
         tags=[model_name, "selftrain", str(mode)],
         group=wandb_group,
         dir=wandb_dir,
+        allow_val_change=wandb_allow_val_change, 
     )
 
-    wandb.config.update({"cli_params": cli_params})
+    wandb.config.update({"cli_params": cli_params}, allow_val_change=wandb_allow_val_change)
 
     gadgets.utils.add_new_token(
         "<",
@@ -224,7 +229,8 @@ def main(
     )
 
     training_args = transformers.Seq2SeqTrainingArguments(
-        output_dir=f"{checkpoint_dir}/{wandb.run.name}",
+        resume_from_checkpoint=resume_from_checkpoint,
+        output_dir=f"{checkpoint_dir}/{wandb.run.name.split('--')[0]}",
         learning_rate=learning_rate,
         do_train=True,
         do_eval=True,
@@ -345,7 +351,7 @@ def main(
 
     if validate_at_start:
         trainer.evaluate()
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
 
 
