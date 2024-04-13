@@ -267,10 +267,13 @@ class MakePreferencePairs:
         # oversample accepted predictions that appear too few times
         # without violating the oversampling limit
         if self.min_target_pairs is not None:
-            while self._num_pairs(prefs) < self.min_target_pairs:
+            for _ in range(self.min_target_pairs):
                 least_represented_accepted = min(prefs, key=lambda acc: len(prefs[acc]))
                 its_rejecteds = prefs[least_represented_accepted]
                 its_rejecteds_orig = all_prefs[least_represented_accepted]
+                if self._num_pairs(prefs) >= self.min_target_pairs:
+                    # stop when enough pairs are created
+                    break
                 if self.max_pairs is not None and self._num_pairs(prefs) >= self.max_pairs:
                     # stop before too many pairs
                     break
