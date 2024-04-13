@@ -56,6 +56,7 @@ matplotlib = "^3.8.2"
 torchdata = "^0.7.1"
 more-itertools = "^10.2.0"
 trl = {git = "https://github.com/huggingface/trl.git"}
+skops = "^0.9.0"
 
 
 [tool.poetry.group.dev.dependencies]
