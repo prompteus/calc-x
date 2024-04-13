@@ -1,4 +1,3 @@
-import sys
 import traceback
 import os
 import gc
@@ -364,4 +363,8 @@ def as_side_effect(fn: callable) -> callable:
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    try:
+        typer.run(main)
+    except BaseException as e:
+        print(traceback.format_exc())
+        raise e

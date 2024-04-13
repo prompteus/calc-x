@@ -1,4 +1,5 @@
 from typing import Optional
+import traceback
 import gc
 
 import datasets
@@ -176,7 +177,10 @@ def main(
 
     trainer.train()
 
-
-
 if __name__ == "__main__":
-    typer.run(main)
+    try:
+        typer.run(main)
+    except BaseException as e:
+        print(traceback.format_exc())
+        raise e
+
