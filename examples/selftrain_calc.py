@@ -55,7 +55,7 @@ def main(
     sample_least_successful_with_prob: float = 0.5,
     buffer_size: int = 8192,
     optim: str = "adafactor",
-    save_total_limit: int = 3,
+    save_total_limit: int = 6,
     eval_steps: int = 200,
     save_steps: int = 200,
     dpo_loss_type: str = "sigmoid",
@@ -74,8 +74,8 @@ def main(
     experience_generation_top_k: int = 50,
     metric_for_best_model: str = "ape210k__correct_results",
     style_classifier_checkpoint: Optional[str] = "MU-NLPC/calcformer-style-classifier",
-    style_classifier_margin: float = 0.25,
-    style_score_printing_threshold: float = 0.5,
+    style_classifier_margin: float = 0.5,
+    style_score_threshold: float = 0.5,
     prefer_good_style: bool = False,
     resume_from_checkpoint: bool = False,
     wandb_allow_val_change: bool = False,
@@ -176,9 +176,6 @@ def main(
     else:
         prefill = None
 
-    if prefer_good_style and mode == Mode.sft:
-        raise NotImplementedError("prefer_good_style is not (yet) implemented for SFT mode")
-
     if style_classifier_checkpoint is not None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             skops.hub_utils.download(
@@ -209,7 +206,7 @@ def main(
         use_stdout=False,
         use_wandb=True,
         num_preds_per_problem=num_predictions_per_example,
-        style_score_printing_threshold=style_score_printing_threshold,
+        style_score_printing_threshold=style_score_threshold,
         style_score_margin=style_classifier_margin,
     )
 
@@ -317,6 +314,8 @@ def main(
                 target_min_examples_per_problem=sft_target_min_examples_per_problem,
                 max_examples_per_problem=sft_max_examples_per_problem,
                 max_oversample=sft_max_oversample_per_problem,
+                prefer_good_style=prefer_good_style,
+                style_score_threshold=style_score_threshold,
             )
 
             pipe = (

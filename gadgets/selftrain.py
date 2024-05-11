@@ -155,17 +155,23 @@ class MakeSFTExamples:
         target_min_examples_per_problem: int | None = None,
         max_examples_per_problem: int | None = None,
         max_oversample: int | None = None,
+        prefer_good_style: bool = False,
+        style_score_threshold: float | None = None,
     ):
         self.random_gen = random_gen
         self.target_min_examples = target_min_examples_per_problem
         self.max_examples = max_examples_per_problem
         self.max_oversample = max_oversample
+        self.prefer_good_style = prefer_good_style
+        self.style_score_threshold = style_score_threshold
         if self.target_min_examples is not None and self.max_examples is not None and self.target_min_examples > self.max_examples:
             raise ValueError("target_min_examples must be less than or equal to max_examples")
 
     def __call__(self, experience: list[Experience]) -> list[Experience]:
         assert all(exp.problem_id == experience[0].problem_id for exp in experience)
         experience = [exp for exp in experience if exp.is_correct]
+        if self.prefer_good_style and all(exp.style_score is not None for exp in experience):
+            experience = [exp for exp in experience if exp.style_score > self.style_score_threshold]
 
         if self._is_too_many(experience):
             return self._undersample(experience)
@@ -223,7 +229,7 @@ class MakePreferencePairs:
             gap = self.style_score_margin
             all_prefs = {exp: set() for exp in experience}
             for correct in corrects:
-                # correct nice > cirrect ugly
+                # correct nice > correct ugly
                 all_prefs[correct].update({other_correct for other_correct in corrects if correct.style_score - other_correct.style_score > gap})
                 # correct nice > incorrect nice
                 # correct nice > incorrect ugly

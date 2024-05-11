@@ -9,26 +9,6 @@ import typer
 import gadgets
 
 
-def print_info(
-    name: str,
-    is_correct: np.ndarray,
-    confidence_level: float,
-    seed: int = 0,
-) -> None:
-    if is_correct.ndim != 1:
-        raise ValueError("is_correct should be 1D array")
-    bootstrap = scipy.stats.bootstrap(is_correct.reshape(1, -1), np.mean, confidence_level=confidence_level, random_state=seed)
-    low, high = bootstrap.confidence_interval
-    mean = is_correct.mean()
-    radius = (high-low) / 2
-
-    print(name)
-    print(f"  Number of predictions: {len(is_correct)}")
-    print(f"  predictions have a correct final result in {mean:.1%} ± {radius*100:.1f} of cases. latex: {mean*100:.1f}±\small{{{((high-low)/2)*100:.1f}}}")
-    print(f"  {confidence_level:.1%} Confidence interval: [{low:.3%}, {high:.3%}]")
-
-
-
 def main(
     input_jsonl: Annotated[
         pathlib.Path,
@@ -59,8 +39,8 @@ def main(
     is_correct = gadgets.metrics.are_results_same(pred_results, true_results)
     is_correct = is_correct.to_numpy().astype(float)
 
-    print_info("OVERALL", is_correct, confidence_level)
-    print()
+    #print_info("OVERALL", is_correct, confidence_level)
+    #print()
 
     if ds_column in df:
         print("PER DATASET:")
@@ -68,6 +48,31 @@ def main(
         for ds_name in df[ds_column].unique():
             print_info(ds_name, is_correct[df[ds_column] == ds_name], confidence_level)
             print()
+
+    print()
+    print("AVG OVER DATASETS:")
+    df["is_correct"] = is_correct
+    avg_correct = df.groupby(ds_column).agg({"is_correct": "mean"}).mean().item()
+    print(f"{avg_correct:.3%}")
+
+
+def print_info(
+    name: str,
+    is_correct: np.ndarray,
+    confidence_level: float,
+    seed: int = 0,
+) -> None:
+    if is_correct.ndim != 1:
+        raise ValueError("is_correct should be 1D array")
+    bootstrap = scipy.stats.bootstrap(is_correct.reshape(1, -1), np.mean, confidence_level=confidence_level, random_state=seed)
+    low, high = bootstrap.confidence_interval
+    mean = is_correct.mean()
+    radius = (high-low) / 2
+
+    print(name)
+    print(f"  Number of predictions: {len(is_correct)}")
+    print(f"  predictions have a correct final result in {mean:.1%} ± {radius*100:.1f} of cases. latex: {mean*100:.1f}±\small{{{((high-low)/2)*100:.1f}}}")
+    print(f"  {confidence_level:.1%} Confidence interval: [{low:.3%}, {high:.3%}]")
 
 
 if __name__ == "__main__":
