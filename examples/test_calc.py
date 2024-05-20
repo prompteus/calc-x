@@ -49,11 +49,14 @@ def main(
             print_info(ds_name, is_correct[df[ds_column] == ds_name], confidence_level)
             print()
 
-    print()
-    print("AVG OVER DATASETS:")
-    df["is_correct"] = is_correct
-    avg_correct = df.groupby(ds_column).agg({"is_correct": "mean"}).mean().item()
-    print(f"{avg_correct:.3%}")
+        print()
+        print("AVG OVER DATASETS:")
+        df["is_correct"] = is_correct
+        avg_correct = df.groupby(ds_column).agg({"is_correct": "mean"}).mean().item()
+        print(f"{avg_correct:.3%}")
+    
+    else:
+        print_info("", is_correct, confidence_level)
 
 
 def print_info(
