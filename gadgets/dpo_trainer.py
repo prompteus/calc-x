@@ -174,7 +174,6 @@ class DPOTrainer(Seq2SeqTrainer):
         ref_model_init_kwargs: Optional[Dict] = None,
         model_adapter_name: str = None,
         ref_adapter_name: str = None,
-        use_generative_eval: bool = False,
     ):
         if model_init_kwargs is None:
             model_init_kwargs = {}
