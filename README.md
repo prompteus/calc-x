@@ -1,4 +1,4 @@
-# Calc-X, Calcformers and Self-training
+# Calc-X, Calcformers, and Self-training
 
 This is the official repository for two papers:
 - original paper at EMNLP 2023: [Calc-X and Calcformers: Empowering Arithmetical Chain-of-Thought through Interaction with Symbolic Systems](https://arxiv.org/abs/2305.15017)
@@ -12,7 +12,7 @@ You can access the datasets and the trained models on HuggingFace:
 
 This repo contains:
 - dataset builders
-- training, self-training, inference and evaluation scripts
+- training, self-training, inference, and evaluation scripts
 - inference wrappers for models that can call a function during inference
 
 
