@@ -1,4 +1,4 @@
-# Calc-X and Calcformers
+# Calc-X, Calcformers and Self-training
 
 This is the official repository for two papers:
 - original paper at EMNLP 2023: [Calc-X and Calcformers: Empowering Arithmetical Chain-of-Thought through Interaction with Symbolic Systems](https://arxiv.org/abs/2305.15017)
