@@ -39,6 +39,22 @@ if args.use_gadgets:
         model_class = gadgets.model.gadget_assisted_model(model_class)
 
 model = model_class.from_pretrained(model_checkpoint)
+if hasattr(model, "peft_config"):
+    from peft import PeftModel
+    # by default, HF loads lora models in a slow way
+    model = model_class.from_pretrained(model.peft_config["default"].base_model_name_or_path)
+    model = PeftModel.from_pretrained(model, model_checkpoint)
+
+    model.generate = gadgets.model.GadgetAssist.generate
+    model.prepare_for_generate = gadgets.model.GadgetAssist.prepare_for_generate
+
+    cls = model.__class__
+    model.__class__ = cls.__class__(cls.__name__ + "WithGadgetAssist", (cls, gadgets.model.GadgetAssist), {})
+
+    # model_cls = gadgets.model.gadget_assisted_model(PeftModel)
+    # model = model_cls.from_pretrained(model, model_checkpoint)
+    # model.__class__ = gadgets.model.GadgetAssist
+    print("Is instance of GadgetAssist? %s" % isinstance(model, gadgets.model.GadgetAssist))
 
 if args.use_gadgets:
     gadgets.utils.add_new_token("<",

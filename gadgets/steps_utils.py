@@ -59,6 +59,7 @@ class StepwiseCollatorForSeq2Seq:
     pad_to_multiple_of: Optional[int] = None
     label_pad_token_id: int = -100
     return_tensors: str = "pt"
+    paired_targets: bool = False
 
     def __call__(self, features, return_tensors=None):
         if return_tensors is None:
@@ -89,7 +90,8 @@ class StepwiseCollatorForSeq2Seq:
         if "paired_input_ids" in features[0]:  # paired samples are only present in training
             paired_samples = [{"input_ids": sample["paired_input_ids"],
                                "attention_mask": sample["paired_attention_mask"]} for sample in features]
-
+            # if len(paired_samples[0]["input_ids"]) >= 512:
+            #     print()
             paired_features = self.tokenizer.pad(paired_samples,
                                                  padding=self.padding,
                                                  max_length=self.max_length,
@@ -98,6 +100,20 @@ class StepwiseCollatorForSeq2Seq:
 
             paired_features["attention_mask"] = self.construct_extended_attention_mask(paired_features.input_ids,
                                                                                        paired_features.attention_mask)
+        elif "paired_labels" in features[0]:
+            paired_samples = [{"input_ids": sample["paired_input_ids"],
+                               "attention_mask": sample["paired_attention_mask"]} for sample in features]
+            # if len(paired_samples[0]["input_ids"]) >= 512:
+            #     print()
+            paired_features = self.tokenizer.pad(paired_samples,
+                                                 padding=self.padding,
+                                                 max_length=self.max_length,
+                                                 pad_to_multiple_of=self.pad_to_multiple_of,
+                                                 return_tensors=return_tensors)
+            paired_features["labels"] = paired_features["input_ids"]
+            del paired_features["input_ids"]\
+            # paired_features["attention_mask"] = self.construct_extended_attention_mask(paired_features.input_ids,
+            #                                                                            paired_features.attention_mask)
 
         orig_samples = [{f: val for f, val in sample.items() if f not in ("paired_input_ids", "paired_attention_mask")}
                         for sample in features]
@@ -106,11 +122,11 @@ class StepwiseCollatorForSeq2Seq:
                                       max_length=self.max_length,
                                       pad_to_multiple_of=self.pad_to_multiple_of,
                                       return_tensors=return_tensors)
-        features["attention_mask"] = self.construct_extended_attention_mask(features.input_ids,
-                                                                            features.attention_mask)
+        # features["attention_mask"] = self.construct_extended_attention_mask(features.input_ids,
+        #                                                                     features.attention_mask)
         if paired_features is not None:
-            features["paired_input_ids"] = paired_features["input_ids"]
-            features["paired_attention_mask"] = paired_features["attention_mask"]
+            for k, v in paired_features.items():
+                features["paired_%s" % k] = paired_features[k]
 
         # prepare decoder_input_ids
         if (labels is not None
@@ -118,6 +134,8 @@ class StepwiseCollatorForSeq2Seq:
                 and hasattr(self.model, "prepare_decoder_input_ids_from_labels")):
             decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=features["labels"])
             features["decoder_input_ids"] = decoder_input_ids
+            # TODO: if we pair labels, paired_attention_mask should be aligned with decoder_input_ids
+            # TODO: check this on the decoder() call
 
         return features
 

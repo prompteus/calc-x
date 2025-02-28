@@ -112,7 +112,7 @@ permuter = StepPermuter(tokenizer)
 def flatten_sample_per_step(x: dict[str, Any],
                             question_key: str,
                             chain_key: str,
-                            answer_key: str) -> Iterator[dict[str, List[str]]]:
+                            answer_key: str) -> dict[str, List[str]]:
     # transformation of the dataset into a per-step version: "question+previous steps" -> "next step"
     # sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
     separated_steps, sep = separate_chain_to_steps(x[chain_key])
@@ -136,18 +136,13 @@ def flatten_sample_per_step(x: dict[str, Any],
     steps = [step + STEP_TOKEN for step in step]
     paired_steps = permuter.permute_all_steps(steps)
 
-    questions = [sep.join(steps[:i]) for i in range(1, len(steps))]
-    questions_paired = [sep.join(paired_steps[:i]) for i in range(1, len(steps))]
-    targets = [step for i, step in enumerate(steps) if i > 0]
+    target = sep.join(steps[1:])
+    target_paired = sep.join(paired_steps[1:])
 
-    for question, question_paired, target in zip(questions, questions_paired, targets):
-        yield {question_key + "_orig": x[question_key],
-               question_key: question,
-               question_key + "_paired": question_paired,
-               "steps": steps,
-               # "steps_paired": steps,
-               chain_key: target,
-               answer_key: x[answer_key]}
+    return {question_key: x[question_key],
+            chain_key: target,
+            chain_key + "_paired": target_paired,
+            answer_key: x[answer_key]}
 
 
 def preprocessing_factory(tokenizer, question_key, answer_key, chain_key, split: str, baseline: bool = False):
@@ -183,9 +178,8 @@ for dset_name, keys in dataset_to_keys.items():
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
         dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
-        augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
-        flattened_dataset = itertools.chain.from_iterable(augmented_dataset)
-        dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
+
+        dataset["train"] = dataset["train"].map(lambda row: flatten_sample_per_step(row, **keys))
         # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
         dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
         # in training datasets, we additionally encode steps mask to be used for aggregation of each step encoding

@@ -21,8 +21,8 @@ from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-# model_name = "google/flan-t5-small"  # TODO
-model_name = "google/t5-v1_1-large"
+model_name = "google/flan-t5-small"  # TODO
+# model_name = "google/t5-v1_1-large"
 # model_name = "/Users/xstefan3/PycharmProjects/gadgets-hackaton/trained_models/faithful-plant-182-ch12000"  # GSM+AQuA T5-compressed-memory-Large
 # model_name = "logs/faithful-plant-182/checkpoint-12000"  # pretrained T5-memory-Large on apollo
 
@@ -73,7 +73,7 @@ model.prepare_for_generate(
 )
 
 train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k", "Calc-math_qa"]
-train_datasets_keys = ["Calc-aqua_rat"]
+train_datasets_keys = ["Calc-math_qa"]
 # train_datasets_keys = ["Calc-gsm8k"]
 val_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k"]
 # val_datasets_keys = ["Calc-gsm8k"]
@@ -115,7 +115,8 @@ permuter = StepPermuter(tokenizer)
 def flatten_sample_per_step(x: dict[str, Any],
                             question_key: str,
                             chain_key: str,
-                            answer_key: str) -> Iterator[dict[str, List[str]]]:
+                            answer_key: str,
+                            baseline: bool = True) -> Iterator[dict[str, List[str]]]:
     # transformation of the dataset into a per-step version: "question+previous steps" -> "next step"
     # sep = ". " if ". " in x[chain_key] else ".\n" if ".\n" in x[chain_key] else "\n"
     separated_steps, sep = separate_chain_to_steps(x[chain_key])
@@ -140,7 +141,11 @@ def flatten_sample_per_step(x: dict[str, Any],
     paired_steps = permuter.permute_all_steps(steps)
 
     questions = [sep.join(steps[:i]) for i in range(1, len(steps))]
-    questions_paired = [sep.join(paired_steps[:i]) for i in range(1, len(steps))]
+    if baseline:
+        # computing alternative reasoning chains is expensive, baseline does not make use of it
+        questions_paired = [None] * len(questions)
+    else:
+        questions_paired = [sep.join(paired_steps[:i]) for i in range(1, len(steps))]
     targets = [step for i, step in enumerate(steps) if i > 0]
 
     for question, question_paired, target in zip(questions, questions_paired, targets):

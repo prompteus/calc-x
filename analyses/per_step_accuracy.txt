@@ -1,0 +1,16 @@
+model eval jsonl															2					3					4					5					6					7
+
+calcformer-t5-large-Calc-aqua_rat.jsonl										28.1±\small{7.6}	23.1±\small{11.5}	20.8±\small{16.7}	17.6±\small{17.6}	11.1±\small{26.2}	25.0±\small{37.5}
+flowing-night-159-t5-1B-encoded_steps-no_pretraining-Calc-aqua_rat.jsonl	22.3±\small{7.2}	21.2±\small{10.6}	16.7±\small{16.7}	17.6±\small{17.6}	11.1±\small{22.2}	0.0±\small{nan}
+major-valley-162-t5-1B-encoded_steps-pretraining-Calc-aqua_rat.jsonl		28.1±\small{7.6}	23.1±\small{11.5}	29.2±\small{18.8}	23.5±\small{20.6}	44.4±\small{33.3}	25.0±\small{37.5}
+feasible-waterfall-233-calc-pretrained_tea-ch40k-Calc-aqua_rat.jsonl		26.6±\small{7.2}	30.8±\small{12.5}	12.5±\small{14.6}	23.5±\small{20.6}	22.2±\small{27.8}	25.0±\small{37.5}
+
+calcformer-t5-large-Calc-gsm8k.jsonl										33.3±\small{23.3}	58.3±\small{7.9}	41.3±\small{8.7}	24.5±\small{8.0}	3.2±\small{5.6}		0.0±\small{nan}		0.0±\small{nan}
+flowing-night-159-t5-1B-encoded_steps-no_pretraining-Calc-gsm8k.jsonl		26.7±\small{23.3}	59.6±\small{7.9}	45.2±\small{8.7}	31.1±\small{9.0}	15.9±\small{9.5}	13.6±\small{13.6}	0.0±\small{nan}
+major-valley-162-t5-1B-encoded_steps-pretraining-Calc-gsm8k.jsonl			20.0±\small{20.0}	58.3±\small{7.9}	42.1±\small{8.7}	24.5±\small{8.5}	20.6±\small{10.3}	13.6±\small{13.6}	0.0±\small{nan}
+feasible-waterfall-233-calc-pretrained_tea-ch40k-Calc-gsm8k.jsonl			20.0±\small{20.0}	59.6±\small{7.6}	38.1±\small{8.3}	29.2±\small{8.6}	15.9±\small{9.5}	4.5±\small{11.4}	6.7±\small{16.7}
+
+calcformer-t5-large-Calc-ape210k.jsonl										54.7±\small{10.5}	62.1±\small{8.5}	55.4±\small{9.4}	34.5±\small{11.8}	26.5±\small{12.2}	16.0±\small{16.0}	22.2±\small{27.8}	33.3±\small{27.8}
+flowing-night-159-t5-1B-encoded_steps-no_pretraining-Calc-ape210k.jsonl		57.0±\small{10.5}	57.3±\small{8.5}	54.5±\small{8.9}	36.4±\small{12.7}	22.4±\small{11.2}	8.0±\small{12.0}	22.2±\small{27.8}	0.0±\small{nan}
+major-valley-162-t5-1B-encoded_steps-pretraining-Calc-ape210k.jsonl			57.0±\small{10.5}	57.3±\small{8.9}	52.7±\small{9.0}	29.1±\small{11.8}	16.3±\small{10.2}	4.0±\small{10.0}	22.2±\small{27.8}	33.3±\small{27.8}
+feasible-waterfall-233-calc-pretrained_tea-ch40k-Calc-ape210k.jsonl			16.3±\small{8.1}	17.7±\small{6.5}	16.1±\small{7.1}	1.8±\small{4.8}		2.0±\small{5.1}		0.0±\small{nan}		0.0±\small{nan}		0.0±\small{nan}

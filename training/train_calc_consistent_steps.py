@@ -21,9 +21,11 @@ from gadgets.steps_utils import StepPermuter, separate_chain_to_steps
 for i in range(torch.cuda.device_count()):
     print(i, torch.cuda.get_device_properties(i))
 
-# model_name = "google/flan-t5-small"  # TODO
-model_name = "google/t5-v1_1-large"
-# model_name = "/Users/xstefan3/PycharmProjects/gadgets-hackaton/trained_models/faithful-plant-182-ch12000"  # GSM+AQuA T5-compressed-memory-Large
+random.seed(42)
+
+model_name = "google/flan-t5-small"  # TODO
+# model_name = "google/t5-v1_1-large"
+# model_name = "/Users/xstefan3/PycharmProjects/gadgets-hackaton/logs/valiant-puddle-322/checkpoint-18000"
 # model_name = "logs/faithful-plant-182/checkpoint-12000"  # pretrained T5-memory-Large on apollo
 
 log_path = "/var/tmp/xstefan3/logs/"
@@ -46,7 +48,7 @@ gadgets.utils.add_new_token(
         init_with=["[", ">"],
 )
 
-STEP_TOKEN = "[step]"
+STEP_TOKEN = "<step>"
 
 gadgets.utils.add_new_token(
         STEP_TOKEN,
@@ -73,12 +75,12 @@ model.prepare_for_generate(
 )
 
 train_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k", "Calc-math_qa"]
-train_datasets_keys = ["Calc-aqua_rat"]
-# train_datasets_keys = ["Calc-gsm8k"]
+train_datasets_keys = ["Calc-gsm8k"]
+
 val_datasets_keys = ["Calc-gsm8k", "Calc-aqua_rat", "Calc-ape210k"]
 # val_datasets_keys = ["Calc-gsm8k"]
 
-valid_size = 100  # TODO Adjust: Select the first 100 samples for validation
+valid_size = 1  # TODO Adjust: Select the first 100 samples for validation
 
 dataset_to_keys = {
     "Calc-gsm8k": {
@@ -139,6 +141,8 @@ def flatten_sample_per_step(x: dict[str, Any],
     targets = [step for i, step in enumerate(steps) if i > 0]
 
     for question, question_paired, target in zip(questions, questions_paired, targets):
+        if question.count(STEP_TOKEN) != question_paired.count(STEP_TOKEN):
+            continue
         yield {question_key + "_orig": x[question_key],
                question_key: question,
                question_key + "_paired": question_paired,
@@ -180,9 +184,9 @@ for dset_name, keys in dataset_to_keys.items():
     if dset_name in train_datasets_keys:
         # we apply per-step flattening on only train datasets
         # for simplicity, flatten_sample_per_step requires batch_size=1
-        # dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
+        dataset["train"] = dataset["train"].select(range(200))  # TODO: for debug only
         augmented_dataset = (flatten_sample_per_step(sample, **keys) for sample in tqdm(dataset["train"].to_list()))
-        flattened_dataset = itertools.chain(*augmented_dataset)
+        flattened_dataset = itertools.chain.from_iterable(augmented_dataset)
         dataset["train"] = datasets.Dataset.from_list(list(flattened_dataset))
         # remove samples where we extracted empty label (=reasoning step) -> avoid training to generate empty step
         dataset["train"] = dataset["train"].filter(lambda row: row[keys["chain_key"]].strip())
@@ -259,39 +263,38 @@ metrics = gadgets.metrics.MyMetrics(
         steps_separator=STEP_TOKEN,
         log_predictions=True,
         log_predictions_indices=log_predictions_indices,
-        datasets_id_length={k: len(preprocessed_datasets[k]['validation']) for k in dataset_to_keys.keys() if
-                            k in val_datasets_keys},
+        datasets_id_length={k: len(preprocessed_datasets[k]['validation']) for k in val_datasets_keys},
         # TODO: ordering and sizes must match eval_dataset
 )
 
 training_args = transformers.Seq2SeqTrainingArguments(
-    output_dir=log_path + wandb.run.name,  # TODO add
-    # output_dir=log_path,
-    learning_rate=5e-5,
-    do_train=True,
-    do_eval=True,
-    warmup_steps=1000,
-    max_steps=200_000,
-    per_device_train_batch_size=8,  # TODO
-    gradient_accumulation_steps=4,  # TODO
-    per_device_eval_batch_size=1,
-    eval_accumulation_steps=16,
-    logging_steps=50,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
-    eval_steps=1000,  # TODO
-    save_steps=1000,
-    evaluation_strategy="steps",
-    # bf16=True,  # TODO
-    predict_with_generate=True,
-    generation_max_length=512,
-    include_inputs_for_metrics=True,
-    report_to="wandb",
-    metric_for_best_model="avg_correct_results",
-    greater_is_better=True,
-    load_best_model_at_end=True,
-    save_total_limit=2,
-    # no_cuda=True,  # TODO: remove
-    # use_cpu=True,
-    remove_unused_columns=False,
+        output_dir="./logs/" + wandb.run.name,  # TODO add
+        # output_dir="./logs/",
+        learning_rate=5e-5,
+        do_train=True,
+        do_eval=True,
+        warmup_steps=1000,
+        max_steps=200_000,
+        per_device_train_batch_size=2,  # TODO
+        gradient_accumulation_steps=1,  # TODO
+        per_device_eval_batch_size=1,
+        eval_accumulation_steps=1,
+        logging_steps=2,  # TODO: 4000 steps =~ 1 hour training, 1 hour eval, 8000 steps =~ 2 hour training, 1 hour eval
+        eval_steps=1000,  # TODO
+        save_steps=1000,
+        evaluation_strategy="steps",
+        # bf16=True,  # TODO
+        predict_with_generate=True,
+        generation_max_length=512,
+        include_inputs_for_metrics=True,
+        report_to="wandb",
+        metric_for_best_model="avg_correct_results",
+        greater_is_better=True,
+        load_best_model_at_end=True,
+        save_total_limit=5,
+        # no_cuda=True,  # TODO: remove
+        use_cpu=True,
+        remove_unused_columns=False,
 )
 
 trainer = transformers.Seq2SeqTrainer(
