@@ -10,18 +10,20 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 
-python = ">=3.10,<3.13"
+svgai = { git = "https://github.com/prompteus/svgai.git", rev = "6ab65dddebf7975fb78df3693e39a5fafadb4d54" }
 
-torch = "2.2.0"
-xformers = "0.0.24" # must be selected according to torch version
+python = ">=3.12,<3.13"
+
+torch = ">=2.2.0"
+xformers = ">=0.0.24" # must be selected according to torch version
 loralib = "^0.1.1"
 
-transformers = "~4.36"
+transformers = ">=4.36"
 accelerate = ">=0.21.0"
 bitsandbytes = ">=0.41.1"
 deepspeed = ">=0.10.0"
 peft = ">=0.4.0"
-sentencepiece = "^0.1.99"
+sentencepiece = ">=0.1.99"
 evaluate = "^0.4.0"
 sacrebleu = "^2.3.1"
 rouge-score = "^0.1.2"
@@ -29,7 +31,7 @@ datasets = "^2.14.4"
 
 sympy = "^1.12"
 scipy = "^1.10.1"
-wandb = "^0.13.10"
+wandb = ">0.13.10"
 
 beautifulsoup4 = "^4.11.2"
 scikit-learn = "^1.2.1"
@@ -37,14 +39,14 @@ pydantic = "^2.5.3"
 inflect = "^6.0.2"
 protobuf = "3.20"
 lark = "^1.1.5"
-polars = "^0.16.16"
+polars = ">=0.16.16"
 rich = "^13.3.3"
 joblib = "^1.2.0"
 timeout-decorator = "^0.5.0"
 pandarallel = "^1.6.5"
 plotly = "^5.14.1"
-typer = "^0.9.0"
-requests = "2.29.0"
+typer = ">=0.9.0"
+requests = ">=2.29.0"
 urllib3 = "1.26.16"
 nbformat = ">=4.2.0"
 ipywidgets = "^8.0.6"
@@ -56,7 +58,7 @@ matplotlib = "^3.8.2"
 torchdata = "^0.7.1"
 more-itertools = "^10.2.0"
 trl = {git = "https://github.com/huggingface/trl.git"}
-skops = "^0.9.0"
+skops = "<=0.9.0"
 
 
 [tool.poetry.group.dev.dependencies]
