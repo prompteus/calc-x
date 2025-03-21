@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Optional
 import traceback
 import gc
@@ -11,19 +10,14 @@ import numpy as np
 import transformers
 import typer
 import wandb
-import svgai
 
 import gadgets
-
-
-logger = logging.getLogger()
 
 
 def main(
     use_instructions_train: bool = True,
     use_instructions_val: bool = False,
-    model_name: str = "meta-llama/Llama-3.2-1B",
-    num_embeddings_model: Optional[str] = None,
+    model_name: str = "google/t5-v1_1-large",
     limit_train_set_per_ds: int = -1,
     limit_val_set_per_ds: int = 200,
     wandb_entity: str = "transformersclub",
@@ -52,11 +46,8 @@ def main(
 ) -> None:
     cli_params = locals()
 
-    if num_embeddings_model is not None:
-        logger.("Loading ")
-    else:
-        model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name, device_map="cpu")
-        model_class = gadgets.model.gadget_assisted_model(model.__class__)
+    model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name, device_map="cpu")
+    model_class = gadgets.model.gadget_assisted_model(model.__class__)
     del model
     gc.collect()
     model = model_class.from_pretrained(model_name, torch_dtype=torch.bfloat16)
