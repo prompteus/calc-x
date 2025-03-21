@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional
 import traceback
 import gc
@@ -10,14 +11,19 @@ import numpy as np
 import transformers
 import typer
 import wandb
+import svgai
 
 import gadgets
+
+
+logger = logging.getLogger()
 
 
 def main(
     use_instructions_train: bool = True,
     use_instructions_val: bool = False,
-    model_name: str = "google/t5-v1_1-large",
+    model_name: str = "meta-llama/Llama-3.2-1B",
+    num_embeddings_model: Optional[str] = None,
     limit_train_set_per_ds: int = -1,
     limit_val_set_per_ds: int = 200,
     wandb_entity: str = "transformersclub",
@@ -46,14 +52,45 @@ def main(
 ) -> None:
     cli_params = locals()
 
-    model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name, device_map="cpu")
-    model_class = gadgets.model.gadget_assisted_model(model.__class__)
-    del model
-    gc.collect()
-    model = model_class.from_pretrained(model_name, torch_dtype=torch.bfloat16)
-    assert isinstance(model, gadgets.model.GadgetAssist)
-    
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
+    if num_embeddings_model is not None:
+        addition_model = svgai.addition.AdditionLightning.load_from_checkpoint(num_embeddings_model)
+        numeric_input_emb_config = addition_model.model.embedding_config.model_dump()
+        numeric_encoder_config = addition_model.model.num_encoder_config
+
+        original_config = transformers.LlamaConfig.from_pretrained(model_name)
+        config = svgai.num_llama.NumLlamaConfig(
+                numeric_input_emb_config=numeric_input_emb_config,
+                numeric_encoder_config=numeric_encoder_config,
+                **original_config.to_dict(),
+        )
+        model = svgai.num_llama.NumLlama.from_pretrained(model_name, config=config)
+
+        # create the new numeric embedding layer inside llama
+        model.apply_numeric_patch()
+
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
+        # change how llama tokenizes numbers
+        svgai.num_llama.patch_llama_digit_splitting(tokenizer)
+
+        svgai.num_llama.add_num_tokens_to_tokenizer(
+                numeric_input_emb_config["min_value"],
+                numeric_input_emb_config["max_value"],
+                tokenizer,
+                model
+        )
+
+        num_state_dict = addition_model.model.embedding.state_dict()
+        model.get_numeric_emb().load_state_dict(num_state_dict)
+
+    else:
+        model = transformers.AutoModelForCausalLM.from_pretrained(model_name, device_map="cpu")
+        model_class = gadgets.model.gadget_assisted_model(model.__class__)
+        del model
+        gc.collect()
+        model = model_class.from_pretrained(model_name, torch_dtype=torch.bfloat16)
+        assert isinstance(model, gadgets.model.GadgetAssist)
+
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
 
     wandb.init(
         entity=wandb_entity,
